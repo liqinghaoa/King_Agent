@@ -1,31 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
 ###########################################################################
-# Copyright © 1998 - 2026 Tencent. All Rights Reserved.
+# Copyright (C) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Author: Tencent AI Arena Authors
+Monitor panel configuration for the DIY PPO stage-1 agent.
 """
-
 
 from kaiwudrl.common.monitor.monitor_config_builder import MonitorConfigBuilder
 
 
 def build_monitor():
-    """
-    # This function is used to create monitoring panel configurations for custom indicators.
-    # 该函数用于创建自定义指标的监控面板配置。
-    """
     monitor = MonitorConfigBuilder()
 
     config_dict = (
-        monitor.title("峡谷追猎")
+        monitor.title("gorge_chase_diy")
         .add_group(
-            group_name="算法指标",
+            group_name="algorithm",
             group_name_en="algorithm",
         )
         .add_panel(
-            name="累积回报",
+            name="reward",
             name_en="reward",
             type="line",
         )
@@ -35,7 +30,7 @@ def build_monitor():
         )
         .end_panel()
         .add_panel(
-            name="总损失",
+            name="total_loss",
             name_en="total_loss",
             type="line",
         )
@@ -45,7 +40,7 @@ def build_monitor():
         )
         .end_panel()
         .add_panel(
-            name="价值损失",
+            name="value_loss",
             name_en="value_loss",
             type="line",
         )
@@ -55,7 +50,7 @@ def build_monitor():
         )
         .end_panel()
         .add_panel(
-            name="策略损失",
+            name="policy_loss",
             name_en="policy_loss",
             type="line",
         )
@@ -65,13 +60,38 @@ def build_monitor():
         )
         .end_panel()
         .add_panel(
-            name="熵损失",
+            name="entropy_loss",
             name_en="entropy_loss",
             type="line",
         )
         .add_metric(
             metrics_name="entropy_loss",
             expr="avg(entropy_loss{})",
+        )
+        .end_panel()
+        .end_group()
+        .add_group(
+            group_name="episode",
+            group_name_en="episode",
+        )
+        .add_panel(
+            name="episode_steps",
+            name_en="episode_steps",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="episode_steps",
+            expr="avg(episode_steps{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="episode_cnt",
+            name_en="episode_cnt",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="episode_cnt",
+            expr="avg(episode_cnt{})",
         )
         .end_panel()
         .end_group()

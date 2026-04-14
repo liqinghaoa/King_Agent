@@ -1,38 +1,50 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
 ###########################################################################
-# Copyright © 1998 - 2026 Tencent. All Rights Reserved.
+# Copyright (C) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Author: Tencent AI Arena Authors
+Configuration for the DIY PPO stage-1 agent.
 """
 
 
-import numpy as np
-
-
-# Configuration
-# 配置，包含维度设置，算法参数设置，文件的最后一些配置是开悟平台使用不要改动
 class Config:
+    # Stage 1 uses the same compact 40D vector layout as agent_ppo:
+    # hero_self(4), monster_1(5), monster_2(5), local_map(16),
+    # legal_action(8), progress(2).
+    FEATURES = [
+        4,
+        5,
+        5,
+        16,
+        8,
+        2,
+    ]
+    FEATURE_SPLIT_SHAPE = FEATURES
+    FEATURE_LEN = sum(FEATURE_SPLIT_SHAPE)
+    DIM_OF_OBSERVATION = FEATURE_LEN
 
-    # Whether to use CNN networks
-    # 是否使用CNN网络
+    # Compatibility aliases used by the original DIY template.
     USE_CNN = False
-    VIEW_SIZE = 50 if USE_CNN else 0
-
-    FEATURE_VECTOR_SHAPE = (153,)
+    VIEW_SIZE = 0
+    FEATURE_VECTOR_SHAPE = (DIM_OF_OBSERVATION,)
     FEATURE_IMAGE_SHAPE = (4, VIEW_SIZE + 1, VIEW_SIZE + 1)
 
-    ACTION_SHAPE = (8,)
-    VALUE_SHAPE = (1,)
+    # Stage 1 keeps the 8 movement actions only. Flash actions 8-15 are not used.
+    ACTION_NUM = 8
+    ACTION_SHAPE = (ACTION_NUM,)
 
-    # Discount factor GAMMA in RL
-    # RL中的回报折扣GAMMA
-    GAMMA = 0.95
+    VALUE_NUM = 1
+    VALUE_SHAPE = (VALUE_NUM,)
 
-    # Initial learning rate
-    # 初始的学习率
-    START_LR = 5e-4
-
-    VALUE_LOSS_COEFF = 0.5
-    ENTROPY_LOSS_COEFF = 0.025
+    # PPO hyperparameters, aligned with agent_ppo for easier comparison.
+    GAMMA = 0.99
+    LAMDA = 0.95
+    INIT_LEARNING_RATE_START = 0.0003
+    START_LR = INIT_LEARNING_RATE_START
+    BETA_START = 0.001
+    ENTROPY_LOSS_COEFF = BETA_START
+    CLIP_PARAM = 0.2
+    VF_COEF = 1.0
+    VALUE_LOSS_COEFF = VF_COEF
+    GRAD_CLIP_RANGE = 0.5
