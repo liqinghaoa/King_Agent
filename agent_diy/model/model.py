@@ -4,7 +4,7 @@
 # Copyright (C) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Simple MLP Actor-Critic model for the DIY PPO stage-1 agent.
+Simple MLP Actor-Critic model for the DIY PPO stage-3A agent.
 """
 
 import torch.nn as nn
@@ -22,7 +22,7 @@ def make_fc_layer(in_features, out_features):
 class Model(nn.Module):
     def __init__(self, device=None):
         super().__init__()
-        self.model_name = "gorge_chase_diy_stage1"
+        self.model_name = "gorge_chase_diy_stage3a"
         self.device = device
 
         input_dim = Config.DIM_OF_OBSERVATION

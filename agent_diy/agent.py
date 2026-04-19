@@ -4,7 +4,7 @@
 # Copyright (C) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Agent class for the DIY PPO stage-1 agent.
+Agent class for the DIY PPO stage-3A agent.
 """
 
 import numpy as np
@@ -50,7 +50,11 @@ class Agent(BaseAgent):
             feature=list(feature),
             legal_action=legal_action,
         )
-        remain_info = {"reward": reward}
+        remain_info = {
+            "reward": reward,
+            "flash_info": self.preprocessor.last_flash_info,
+        }
+        remain_info.update(self.preprocessor.last_flash_info)
         return obs_data, remain_info
 
     def predict(self, list_obs_data):
@@ -89,9 +93,25 @@ class Agent(BaseAgent):
 
     def load_model(self, path=None, id="1"):
         model_file_path = f"{path}/model.ckpt-{str(id)}.pkl"
-        self.model.load_state_dict(torch.load(model_file_path, map_location=self.device))
+        checkpoint = torch.load(model_file_path, map_location=self.device)
+        model_state = self.model.state_dict()
+        compatible_state = {}
+        skipped_keys = []
+
+        for key, value in checkpoint.items():
+            if key in model_state and model_state[key].shape == value.shape:
+                compatible_state[key] = value
+            else:
+                skipped_keys.append(key)
+
+        model_state.update(compatible_state)
+        self.model.load_state_dict(model_state)
         if self.logger:
             self.logger.info(f"load model {model_file_path} successfully")
+            if skipped_keys:
+                self.logger.info(
+                    f"skip incompatible checkpoint tensors during load: {','.join(skipped_keys)}"
+                )
 
     def action_process(self, act_data, is_stochastic=True):
         action = act_data.action if is_stochastic else act_data.d_action

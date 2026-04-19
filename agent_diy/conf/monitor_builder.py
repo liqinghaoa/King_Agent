@@ -4,7 +4,7 @@
 # Copyright (C) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Monitor panel configuration for the DIY PPO stage-1 agent.
+Monitor panel configuration for the DIY PPO stage-3A agent.
 """
 
 from kaiwudrl.common.monitor.monitor_config_builder import MonitorConfigBuilder
@@ -92,6 +92,116 @@ def build_monitor():
         .add_metric(
             metrics_name="episode_cnt",
             expr="avg(episode_cnt{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="flash_count",
+            name_en="flash_count",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="flash_count",
+            expr="avg(flash_count{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="flash_rate",
+            name_en="flash_rate",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="flash_rate",
+            expr="avg(flash_rate{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="effective_flash_count",
+            name_en="effective_flash_count",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="effective_flash_count",
+            expr="avg(effective_flash_count{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="ineffective_flash_count",
+            name_en="ineffective_flash_count",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="ineffective_flash_count",
+            expr="avg(ineffective_flash_count{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="danger_flash_count",
+            name_en="danger_flash_count",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="danger_flash_count",
+            expr="avg(danger_flash_count{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="safe_flash_count",
+            name_en="safe_flash_count",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="safe_flash_count",
+            expr="avg(safe_flash_count{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="escape_flash_count",
+            name_en="escape_flash_count",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="escape_flash_count",
+            expr="avg(escape_flash_count{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="invalid_flash_count",
+            name_en="invalid_flash_count",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="invalid_flash_count",
+            expr="avg(invalid_flash_count{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="flash_reward_sum",
+            name_en="flash_reward_sum",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="flash_reward_sum",
+            expr="avg(flash_reward_sum{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="flash_distance_delta_sum",
+            name_en="flash_distance_delta_sum",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="flash_distance_delta_sum",
+            expr="avg(flash_distance_delta_sum{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="flash_survive_5_rate",
+            name_en="flash_survive_5_rate",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="flash_survive_5_rate",
+            expr="avg(flash_survive_5_rate{})",
         )
         .end_panel()
         .end_group()

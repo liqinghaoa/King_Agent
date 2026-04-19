@@ -4,20 +4,21 @@
 # Copyright (C) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Configuration for the DIY PPO stage-1 agent.
+Configuration for the DIY PPO stage-3A agent.
 """
 
 
 class Config:
-    # Stage 1 uses the same compact 40D vector layout as agent_ppo:
+    # Stage 3A keeps the compact vector layout, but expands legal_action
+    # from 8 movement actions to the full 16-action environment space:
     # hero_self(4), monster_1(5), monster_2(5), local_map(16),
-    # legal_action(8), progress(2).
+    # legal_action(16), progress(2).
     FEATURES = [
         4,
         5,
         5,
         16,
-        8,
+        16,
         2,
     ]
     FEATURE_SPLIT_SHAPE = FEATURES
@@ -30,8 +31,8 @@ class Config:
     FEATURE_VECTOR_SHAPE = (DIM_OF_OBSERVATION,)
     FEATURE_IMAGE_SHAPE = (4, VIEW_SIZE + 1, VIEW_SIZE + 1)
 
-    # Stage 1 keeps the 8 movement actions only. Flash actions 8-15 are not used.
-    ACTION_NUM = 8
+    # Full action space: 0-7 movement, 8-15 flash.
+    ACTION_NUM = 16
     ACTION_SHAPE = (ACTION_NUM,)
 
     VALUE_NUM = 1

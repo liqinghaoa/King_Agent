@@ -4,7 +4,7 @@
 # Copyright (C) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Data definitions and GAE computation for the DIY PPO stage-1 agent.
+Data definitions and GAE computation for the DIY PPO stage-3A agent.
 """
 
 from common_python.utils.common_func import create_cls
@@ -18,6 +18,7 @@ ActData = create_cls("ActData", action=None, d_action=None, prob=None, value=Non
 SampleData = create_cls(
     "SampleData",
     obs=Config.DIM_OF_OBSERVATION,
+    # Full 16-action mask and old-policy probability distribution.
     legal_action=Config.ACTION_NUM,
     act=1,
     reward=Config.VALUE_NUM,

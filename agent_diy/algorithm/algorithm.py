@@ -4,7 +4,7 @@
 # Copyright (C) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-PPO algorithm implementation for the DIY PPO stage-1 agent.
+PPO algorithm implementation for the DIY PPO stage-3A agent.
 """
 
 import os
