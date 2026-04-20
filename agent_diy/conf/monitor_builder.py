@@ -115,7 +115,7 @@ def build_monitor():
         )
         .end_panel()
         .add_panel(
-            name="effective_flash_count",
+            name="eff_flash_cnt",
             name_en="effective_flash_count",
             type="line",
         )
@@ -125,7 +125,7 @@ def build_monitor():
         )
         .end_panel()
         .add_panel(
-            name="ineffective_flash_count",
+            name="ineff_flash_cnt",
             name_en="ineffective_flash_count",
             type="line",
         )
@@ -152,6 +152,36 @@ def build_monitor():
         .add_metric(
             metrics_name="safe_flash_count",
             expr="avg(safe_flash_count{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="unknown_flash_count",
+            name_en="unknown_flash_count",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="unknown_flash_count",
+            expr="avg(unknown_flash_count{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="danger_eff_flash",
+            name_en="danger_effective_flash_count",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="danger_effective_flash_count",
+            expr="avg(danger_effective_flash_count{})",
+        )
+        .end_panel()
+        .add_panel(
+            name="danger_ineff_flash",
+            name_en="danger_ineffective_flash_count",
+            type="line",
+        )
+        .add_metric(
+            metrics_name="danger_ineffective_flash_count",
+            expr="avg(danger_ineffective_flash_count{})",
         )
         .end_panel()
         .add_panel(
@@ -185,7 +215,7 @@ def build_monitor():
         )
         .end_panel()
         .add_panel(
-            name="flash_distance_delta_sum",
+            name="flash_dist_delta",
             name_en="flash_distance_delta_sum",
             type="line",
         )

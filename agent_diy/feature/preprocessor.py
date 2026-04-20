@@ -30,7 +30,10 @@ def _get_legal_action(observation):
         legal_act_raw = legal_act_raw.tolist()
 
     if isinstance(legal_act_raw, (list, tuple)) and legal_act_raw:
-        if isinstance(legal_act_raw[0], bool):
+        is_full_binary_mask = len(legal_act_raw) >= Config.ACTION_NUM and all(
+            int(a) in (0, 1) for a in legal_act_raw[: Config.ACTION_NUM]
+        )
+        if isinstance(legal_act_raw[0], bool) or is_full_binary_mask:
             for j in range(min(Config.ACTION_NUM, len(legal_act_raw))):
                 legal_action[j] = int(legal_act_raw[j])
         else:
@@ -66,9 +69,16 @@ class Preprocessor:
             "flash_distance_delta": 0.0,
             "flash_in_danger": False,
             "flash_in_safe": False,
+            "flash_in_unknown": False,
+            "prev_visible_monster": False,
+            "cur_visible_monster": False,
+            "flash_visibility_known": False,
+            "danger_effective_flash": False,
+            "danger_ineffective_flash": False,
             "flash": 0,
             "danger_flash": 0,
             "safe_flash": 0,
+            "unknown_flash": 0,
             "escape_flash": 0,
             "invalid_flash": 0,
             "flash_reward": 0.0,
@@ -172,18 +182,32 @@ class Preprocessor:
     def _calc_flash_reward(self, last_action, hero_pos, cur_min_monster_raw_dist, cur_min_dist_norm):
         flash_info = self._empty_flash_info()
         prev_min_dist_norm = self.last_min_monster_dist_norm
-        flash_distance_delta = cur_min_dist_norm - prev_min_dist_norm
         flash_used = last_action >= 8
+        prev_visible_monster = self.last_visible_monster
+        cur_visible_monster = cur_min_monster_raw_dist is not None
+        visibility_known = prev_visible_monster and cur_visible_monster
+        flash_distance_delta = cur_min_dist_norm - prev_min_dist_norm
+        flash_effective = flash_used and flash_distance_delta > 0.03
+        flash_in_danger = flash_used and prev_min_dist_norm < 0.18
+        flash_in_safe = flash_used and prev_min_dist_norm > 0.45
+        danger_effective_flash = flash_in_danger and flash_distance_delta > 0.03
+        danger_ineffective_flash = flash_in_danger and flash_distance_delta <= 0.03
 
         flash_info.update(
             {
                 "flash_used": bool(flash_used),
-                "flash_effective": bool(flash_used and flash_distance_delta > 0.0),
+                "flash_effective": bool(flash_effective),
                 "cur_min_dist_norm": float(cur_min_dist_norm),
                 "prev_min_dist_norm": float(prev_min_dist_norm),
                 "flash_distance_delta": float(flash_distance_delta),
-                "flash_in_danger": bool(flash_used and prev_min_dist_norm < 0.18),
-                "flash_in_safe": bool(flash_used and prev_min_dist_norm > 0.45),
+                "flash_in_danger": bool(flash_in_danger),
+                "flash_in_safe": bool(flash_in_safe),
+                "flash_in_unknown": bool(flash_used and not visibility_known),
+                "prev_visible_monster": bool(prev_visible_monster),
+                "cur_visible_monster": bool(cur_visible_monster),
+                "flash_visibility_known": bool(flash_used and visibility_known),
+                "danger_effective_flash": bool(danger_effective_flash),
+                "danger_ineffective_flash": bool(danger_ineffective_flash),
                 "flash": int(flash_used),
             }
         )
@@ -191,56 +215,32 @@ class Preprocessor:
         if last_action < 8:
             return 0.0, flash_info
 
-        cur_visible_monster = cur_min_monster_raw_dist is not None
-        cur_in_danger = cur_visible_monster and cur_min_monster_raw_dist <= 3.0
-        cur_in_semi_danger = cur_visible_monster and cur_min_monster_raw_dist <= 6.0
-
-        pos_delta = None
-        if self.last_hero_pos is not None:
-            pos_delta = np.sqrt(
-                (hero_pos["x"] - self.last_hero_pos["x"]) ** 2
-                + (hero_pos["z"] - self.last_hero_pos["z"]) ** 2
-            )
-
-        dist_delta = None
-        if self.last_visible_monster and cur_visible_monster:
-            dist_delta = cur_min_monster_raw_dist - self.last_min_monster_raw_dist
-
         flash_reward = 0.0
-        last_near_danger = self.last_visible_monster and self.last_in_semi_danger
-        if last_near_danger:
+        if flash_in_danger:
             flash_info["danger_flash"] = 1
-        elif self.last_visible_monster:
+            if danger_effective_flash:
+                flash_reward += 0.08
+                flash_info["escape_flash"] = 1
+            else:
+                flash_reward -= 0.06
+                flash_info["invalid_flash"] = 1
+        elif flash_in_safe:
             flash_info["safe_flash"] = 1
+            if flash_distance_delta <= 0.02:
+                flash_reward -= 0.03
+                flash_info["invalid_flash"] = 1
+            else:
+                flash_reward += 0.01
+        else:
+            if flash_distance_delta > 0.05:
+                flash_reward += 0.03
+            elif flash_distance_delta <= 0.0:
+                flash_reward -= 0.03
+                flash_info["invalid_flash"] = 1
 
-        if flash_info["flash_in_danger"]:
-            flash_info["danger_flash"] = 1
-        if flash_info["flash_in_safe"]:
-            flash_info["safe_flash"] = 1
-
-        if last_near_danger and dist_delta is not None and dist_delta > 1.0:
-            flash_reward += 0.08
-
-        if self.last_in_danger and not cur_in_danger:
-            flash_reward += 0.12
-            flash_info["escape_flash"] = 1
-
-        invalid_flash = False
-        if pos_delta is not None and pos_delta < 2.0:
-            flash_reward -= 0.07
-            invalid_flash = True
-
-        if (
-            self.last_visible_monster
-            and cur_visible_monster
-            and not self.last_in_semi_danger
-            and not cur_in_semi_danger
-            and (dist_delta is None or dist_delta <= 1.0)
-        ):
-            flash_reward -= 0.05
-            invalid_flash = True
-
-        if invalid_flash:
+        if flash_info["flash_in_unknown"]:
+            flash_info["unknown_flash"] = 1
+        if danger_ineffective_flash:
             flash_info["invalid_flash"] = 1
 
         flash_info["flash_reward"] = flash_reward

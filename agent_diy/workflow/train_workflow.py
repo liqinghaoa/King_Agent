@@ -82,6 +82,9 @@ class EpisodeRunner:
             flash_count = 0
             danger_flash_count = 0
             safe_flash_count = 0
+            unknown_flash_count = 0
+            danger_effective_flash_count = 0
+            danger_ineffective_flash_count = 0
             escape_flash_count = 0
             invalid_flash_count = 0
             effective_flash_count = 0
@@ -123,6 +126,25 @@ class EpisodeRunner:
                 )
                 safe_flash_count += int(
                     bool(_remain_info.get("flash_in_safe", flash_info.get("flash_in_safe", False)))
+                )
+                unknown_flash_count += int(
+                    bool(_remain_info.get("flash_in_unknown", flash_info.get("flash_in_unknown", False)))
+                )
+                danger_effective_flash_count += int(
+                    bool(
+                        _remain_info.get(
+                            "danger_effective_flash",
+                            flash_info.get("danger_effective_flash", False),
+                        )
+                    )
+                )
+                danger_ineffective_flash_count += int(
+                    bool(
+                        _remain_info.get(
+                            "danger_ineffective_flash",
+                            flash_info.get("danger_ineffective_flash", False),
+                        )
+                    )
                 )
                 escape_flash_count += int(flash_info.get("escape_flash", 0))
                 invalid_flash_count += int(flash_info.get("invalid_flash", 0))
@@ -172,6 +194,9 @@ class EpisodeRunner:
                             f"ineffective_flash_count:{ineffective_flash_count} "
                             f"danger_flash_count:{danger_flash_count} "
                             f"safe_flash_count:{safe_flash_count} "
+                            f"unknown_flash_count:{unknown_flash_count} "
+                            f"danger_effective_flash_count:{danger_effective_flash_count} "
+                            f"danger_ineffective_flash_count:{danger_ineffective_flash_count} "
                             f"escape_flash_count:{escape_flash_count} "
                             f"invalid_flash_count:{invalid_flash_count} "
                             f"flash_reward_sum:{flash_reward_sum:.4f} "
@@ -211,6 +236,9 @@ class EpisodeRunner:
                             "ineffective_flash_count": ineffective_flash_count,
                             "danger_flash_count": danger_flash_count,
                             "safe_flash_count": safe_flash_count,
+                            "unknown_flash_count": unknown_flash_count,
+                            "danger_effective_flash_count": danger_effective_flash_count,
+                            "danger_ineffective_flash_count": danger_ineffective_flash_count,
                             "escape_flash_count": escape_flash_count,
                             "invalid_flash_count": invalid_flash_count,
                             "flash_reward_sum": round(flash_reward_sum, 4),
