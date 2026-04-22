@@ -34,10 +34,51 @@ METRIC_ALIASES = {
     "succ_cnt": ["succ_cnt", "success_cnt"],
     "flash_count": ["flash_count"],
     "flash_rate": ["flash_rate"],
+    "effective_flash_count": ["effective_flash_count"],
+    "ineffective_flash_count": ["ineffective_flash_count"],
+    "effective_flash_rate": ["effective_flash_rate"],
+    "ineffective_flash_rate": ["ineffective_flash_rate"],
     "danger_flash_count": ["danger_flash_count"],
     "safe_flash_count": ["safe_flash_count"],
+    "unknown_flash_count": ["unknown_flash_count"],
+    "danger_flash_rate": ["danger_flash_rate"],
+    "safe_flash_rate": ["safe_flash_rate"],
+    "danger_effective_flash_count": ["danger_effective_flash_count"],
+    "danger_ineffective_flash_count": ["danger_ineffective_flash_count"],
+    "danger_effective_flash_rate": ["danger_effective_flash_rate"],
+    "danger_ineffective_flash_rate": ["danger_ineffective_flash_rate"],
     "escape_flash_count": ["escape_flash_count"],
     "invalid_flash_count": ["invalid_flash_count"],
+    "flash_reward_sum": ["flash_reward_sum"],
+    "flash_distance_delta_sum": ["flash_distance_delta_sum"],
+    "avg_flash_distance_delta_per_flash": ["avg_flash_distance_delta_per_flash"],
+    "avg_flash_reward_per_flash": ["avg_flash_reward_per_flash"],
+    "flash_survive_5_rate": ["flash_survive_5_rate"],
+    "post_flash_survive_5_rate": ["post_flash_survive_5_rate"],
+    "flash_eval_trigger_count": ["flash_eval_trigger_count"],
+    "flash_execute_count": ["flash_execute_count"],
+    "flash_execute_rate": ["flash_execute_rate"],
+    "flash_skip_cooldown_count": ["flash_skip_cooldown_count"],
+    "flash_skip_no_safe_candidate_count": ["flash_skip_no_safe_candidate_count"],
+    "flash_skip_move_better_count": ["flash_skip_move_better_count"],
+    "best_flash_better_than_move_count": ["best_flash_better_than_move_count"],
+    "best_move_better_than_flash_count": ["best_move_better_than_flash_count"],
+    "flash_leave_threat_count": ["flash_leave_threat_count"],
+    "flash_leave_threat_rate": ["flash_leave_threat_rate"],
+    "avg_flash_distance_gain": ["avg_flash_distance_gain"],
+    "avg_flash_min_margin_gain": ["avg_flash_min_margin_gain"],
+    "avg_flash_openness_gain": ["avg_flash_openness_gain"],
+    "invalid_flash_rate": ["invalid_flash_rate"],
+    "post_flash_dead_end_count": ["post_flash_dead_end_count"],
+    "post_flash_dead_end_rate": ["post_flash_dead_end_rate"],
+    "early_flash_count": ["early_flash_count"],
+    "early_flash_episode_count": ["early_flash_episode_count"],
+    "wall_cross_flash_count": ["wall_cross_flash_count"],
+    "wall_cross_effective_count": ["wall_cross_effective_count"],
+    "wall_cross_effective_rate": ["wall_cross_effective_rate"],
+    "choke_escape_flash_count": ["choke_escape_flash_count"],
+    "choke_escape_effective_count": ["choke_escape_effective_count"],
+    "choke_escape_effective_rate": ["choke_escape_effective_rate"],
 }
 
 COUNTER_ALIASES = {
@@ -292,15 +333,85 @@ def render_markdown(runs: List[RunStats]) -> str:
         "succ_cnt",
         "flash_count",
         "flash_rate",
+        "effective_flash_count",
+        "ineffective_flash_count",
+        "effective_flash_rate",
+        "ineffective_flash_rate",
         "danger_flash_count",
         "safe_flash_count",
+        "unknown_flash_count",
+        "danger_flash_rate",
+        "safe_flash_rate",
+        "danger_effective_flash_count",
+        "danger_ineffective_flash_count",
+        "danger_effective_flash_rate",
+        "danger_ineffective_flash_rate",
         "escape_flash_count",
         "invalid_flash_count",
+        "flash_reward_sum",
+        "flash_distance_delta_sum",
+        "avg_flash_distance_delta_per_flash",
+        "avg_flash_reward_per_flash",
+        "flash_survive_5_rate",
+        "post_flash_survive_5_rate",
+        "flash_eval_trigger_count",
+        "flash_execute_count",
+        "flash_execute_rate",
+        "flash_skip_cooldown_count",
+        "flash_skip_no_safe_candidate_count",
+        "flash_skip_move_better_count",
+        "best_flash_better_than_move_count",
+        "best_move_better_than_flash_count",
+        "flash_leave_threat_count",
+        "flash_leave_threat_rate",
+        "avg_flash_distance_gain",
+        "avg_flash_min_margin_gain",
+        "avg_flash_openness_gain",
+        "invalid_flash_rate",
+        "post_flash_dead_end_count",
+        "post_flash_dead_end_rate",
+        "early_flash_count",
+        "early_flash_episode_count",
+        "wall_cross_flash_count",
+        "wall_cross_effective_count",
+        "wall_cross_effective_rate",
+        "choke_escape_flash_count",
+        "choke_escape_effective_count",
+        "choke_escape_effective_rate",
     ]
     for stats in runs:
         for metric in metric_order:
             total, avg, max_value, latest, count = metric_summary(stats.metrics[metric])
             lines.append(f"| {stats.label} | {metric} | {total} | {avg} | {max_value} | {latest} | {count} |")
+
+    lines.append("")
+    lines.append("## Derived Flash Rates")
+    lines.append(
+        "| run | flash_count | effective_flash_rate | ineffective_flash_rate | "
+        "danger_flash_rate | safe_flash_rate | danger_effective_flash_rate | "
+        "danger_ineffective_flash_rate | avg_flash_distance_delta_per_flash | avg_flash_reward_per_flash |"
+    )
+    lines.append("| :-- | --: | --: | --: | --: | --: | --: | --: | --: | --: |")
+    for stats in runs:
+        flash_sum = sum(stats.metrics["flash_count"])
+        effective_sum = sum(stats.metrics["effective_flash_count"])
+        ineffective_sum = sum(stats.metrics["ineffective_flash_count"])
+        danger_sum = sum(stats.metrics["danger_flash_count"])
+        safe_sum = sum(stats.metrics["safe_flash_count"])
+        danger_effective_sum = sum(stats.metrics["danger_effective_flash_count"])
+        danger_ineffective_sum = sum(stats.metrics["danger_ineffective_flash_count"])
+        flash_delta_sum = sum(stats.metrics["flash_distance_delta_sum"])
+        flash_reward_sum = sum(stats.metrics["flash_reward_sum"])
+        lines.append(
+            f"| {stats.label} | {fmt(flash_sum)} | {fmt(effective_sum / flash_sum if flash_sum else 0)} | "
+            f"{fmt(ineffective_sum / flash_sum if flash_sum else 0)} | "
+            f"{fmt(danger_sum / flash_sum if flash_sum else 0)} | "
+            f"{fmt(safe_sum / flash_sum if flash_sum else 0)} | "
+            f"{fmt(danger_effective_sum / danger_sum if danger_sum else 0)} | "
+            f"{fmt(danger_ineffective_sum / danger_sum if danger_sum else 0)} | "
+            f"{fmt(flash_delta_sum / flash_sum if flash_sum else 0)} | "
+            f"{fmt(flash_reward_sum / flash_sum if flash_sum else 0)} |"
+        )
 
     lines.append("")
     lines.append("## Missing Fields")

@@ -53,17 +53,21 @@ class Agent(BaseAgent):
         remain_info = {
             "reward": reward,
             "flash_info": self.preprocessor.last_flash_info,
+            "decision_info": self.preprocessor.last_decision_info,
         }
         remain_info.update(self.preprocessor.last_flash_info)
+        remain_info.update(self.preprocessor.last_decision_info)
         return obs_data, remain_info
 
     def predict(self, list_obs_data):
         feature = list_obs_data[0].feature
         legal_action = list_obs_data[0].legal_action
 
-        logits, value, prob = self._run_model(feature, legal_action)
+        logits, value = self._run_model(feature)
+        planner_result, policy_bias, prob = self._planner_adjusted_policy(logits, legal_action)
         action = self._legal_sample(prob, use_max=False)
         d_action = self._legal_sample(prob, use_max=True)
+        self.preprocessor.record_policy_decision(planner_result, action, d_action, policy_bias)
 
         return [
             ActData(
@@ -71,14 +75,25 @@ class Agent(BaseAgent):
                 d_action=[d_action],
                 prob=list(prob),
                 value=value,
+                policy_bias=list(policy_bias),
             )
         ]
 
     def exploit(self, env_obs):
         obs_data, _ = self.observation_process(env_obs)
-        logits, value, prob = self._run_model(obs_data.feature, obs_data.legal_action)
-        action = self._legal_sample(prob, use_max=True)
-        act_data = ActData(action=[action], d_action=[action], prob=list(prob), value=value)
+        logits, value = self._run_model(obs_data.feature)
+        planner_result, policy_bias, prob = self._planner_adjusted_policy(logits, obs_data.legal_action)
+        action = int(planner_result["chosen_action"]) if planner_result.get("flash_eval_triggered") else self._legal_sample(prob, use_max=True)
+        if action < 0:
+            action = self._legal_sample(prob, use_max=True)
+        self.preprocessor.record_policy_decision(planner_result, action, action, policy_bias)
+        act_data = ActData(
+            action=[action],
+            d_action=[action],
+            prob=list(prob),
+            value=value,
+            policy_bias=list(policy_bias),
+        )
         return self.action_process(act_data, is_stochastic=False)
 
     def learn(self, list_sample_data):
@@ -118,7 +133,7 @@ class Agent(BaseAgent):
         self.last_action = int(action[0])
         return int(action[0])
 
-    def _run_model(self, feature, legal_action):
+    def _run_model(self, feature):
         self.model.set_eval_mode()
         obs_tensor = torch.tensor(np.array([feature]), dtype=torch.float32).to(self.device)
 
@@ -127,10 +142,45 @@ class Agent(BaseAgent):
 
         logits_np = logits.cpu().numpy()[0]
         value_np = value.cpu().numpy()[0]
-        legal_action_np = np.array(legal_action, dtype=np.float32)
-        prob = self._legal_soft_max(logits_np, legal_action_np)
+        return logits_np, value_np
 
-        return logits_np, value_np, prob
+    def _planner_adjusted_policy(self, logits, legal_action):
+        legal_action_np = np.array(legal_action, dtype=np.float32)
+        planner_result = self.preprocessor.plan_flash_escape()
+        policy_bias = np.zeros(Config.ACTION_NUM, dtype=np.float32)
+        if Config.ENABLE_FLASH_ESCAPE_V1 and planner_result is not None:
+            raw_bias = planner_result.get("action_bias", [0.0] * Config.ACTION_NUM)
+            policy_bias = np.array(raw_bias, dtype=np.float32)
+            policy_bias += self._planner_flash_gate_bias(planner_result, legal_action_np)
+        prob = self._legal_soft_max(logits + policy_bias, legal_action_np)
+        return planner_result, policy_bias, prob
+
+    def _planner_flash_gate_bias(self, planner_result, legal_action):
+        gate_bias = np.zeros(Config.ACTION_NUM, dtype=np.float32)
+        flash_actions = [action for action in range(8, 16) if legal_action[action] > 0.0]
+        if not flash_actions:
+            return gate_bias
+
+        flash_execute = bool(planner_result.get("flash_execute", False))
+        chosen_action = int(planner_result.get("chosen_action", -1))
+        chosen_flash_valid = 8 <= chosen_action < 16 and legal_action[chosen_action] > 0.0
+
+        if not flash_execute or not chosen_flash_valid:
+            for action in flash_actions:
+                gate_bias[action] -= Config.FLASH_GATE_BLOCK_BIAS
+            return gate_bias
+
+        for action in flash_actions:
+            if action == chosen_action:
+                gate_bias[action] += Config.FLASH_GATE_CHOSEN_BIAS
+            else:
+                gate_bias[action] -= Config.FLASH_GATE_BLOCK_BIAS
+
+        for action in range(8):
+            if legal_action[action] > 0.0:
+                gate_bias[action] -= Config.FLASH_GATE_MOVE_SUPPRESS_WHEN_EXECUTE
+
+        return gate_bias
 
     def _legal_soft_max(self, input_hidden, legal_action):
         weight, eps = 1e20, 1e-5

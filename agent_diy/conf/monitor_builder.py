@@ -4,7 +4,7 @@
 # Copyright (C) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Monitor panel configuration for the DIY PPO stage-3A agent.
+Monitor panel configuration for the DIY PPO agent.
 """
 
 from kaiwudrl.common.monitor.monitor_config_builder import MonitorConfigBuilder
@@ -15,224 +15,124 @@ def build_monitor():
 
     config_dict = (
         monitor.title("gorge_chase_diy")
-        .add_group(
-            group_name="algorithm",
-            group_name_en="algorithm",
-        )
-        .add_panel(
-            name="reward",
-            name_en="reward",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="reward",
-            expr="avg(reward{})",
-        )
+        .add_group(group_name="algorithm", group_name_en="algorithm")
+        .add_panel(name="reward", name_en="reward", type="line")
+        .add_metric(metrics_name="reward", expr="avg(reward{})")
         .end_panel()
-        .add_panel(
-            name="total_loss",
-            name_en="total_loss",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="total_loss",
-            expr="avg(total_loss{})",
-        )
+        .add_panel(name="total_loss", name_en="total_loss", type="line")
+        .add_metric(metrics_name="total_loss", expr="avg(total_loss{})")
         .end_panel()
-        .add_panel(
-            name="value_loss",
-            name_en="value_loss",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="value_loss",
-            expr="avg(value_loss{})",
-        )
+        .add_panel(name="value_loss", name_en="value_loss", type="line")
+        .add_metric(metrics_name="value_loss", expr="avg(value_loss{})")
         .end_panel()
-        .add_panel(
-            name="policy_loss",
-            name_en="policy_loss",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="policy_loss",
-            expr="avg(policy_loss{})",
-        )
+        .add_panel(name="policy_loss", name_en="policy_loss", type="line")
+        .add_metric(metrics_name="policy_loss", expr="avg(policy_loss{})")
         .end_panel()
-        .add_panel(
-            name="entropy_loss",
-            name_en="entropy_loss",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="entropy_loss",
-            expr="avg(entropy_loss{})",
-        )
+        .add_panel(name="entropy_loss", name_en="entropy_loss", type="line")
+        .add_metric(metrics_name="entropy_loss", expr="avg(entropy_loss{})")
         .end_panel()
         .end_group()
-        .add_group(
-            group_name="episode",
-            group_name_en="episode",
-        )
-        .add_panel(
-            name="episode_steps",
-            name_en="episode_steps",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="episode_steps",
-            expr="avg(episode_steps{})",
-        )
+        .add_group(group_name="episode", group_name_en="episode")
+        .add_panel(name="episode_steps", name_en="episode_steps", type="line")
+        .add_metric(metrics_name="episode_steps", expr="avg(episode_steps{})")
+        .add_metric(metrics_name="episode_cnt", expr="avg(episode_cnt{})")
         .end_panel()
-        .add_panel(
-            name="episode_cnt",
-            name_en="episode_cnt",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="episode_cnt",
-            expr="avg(episode_cnt{})",
-        )
+        .add_panel(name="flash_usage", name_en="flash_usage", type="line")
+        .add_metric(metrics_name="flash_count", expr="avg(flash_count{})")
+        .add_metric(metrics_name="flash_rate", expr="avg(flash_rate{})")
         .end_panel()
-        .add_panel(
-            name="flash_count",
-            name_en="flash_count",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="flash_count",
-            expr="avg(flash_count{})",
-        )
+        .add_panel(name="flash_outcome", name_en="flash_outcome", type="line")
+        .add_metric(metrics_name="effective_flash_rate", expr="avg(effective_flash_rate{})")
+        .add_metric(metrics_name="ineffective_flash_rate", expr="avg(ineffective_flash_rate{})")
+        .add_metric(metrics_name="danger_effective_flash_rate", expr="avg(danger_effective_flash_rate{})")
+        .add_metric(metrics_name="safe_flash_rate", expr="avg(safe_flash_rate{})")
         .end_panel()
-        .add_panel(
-            name="flash_rate",
-            name_en="flash_rate",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="flash_rate",
-            expr="avg(flash_rate{})",
-        )
+        .add_panel(name="flash_outcome_counts", name_en="flash_outcome_counts", type="line")
+        .add_metric(metrics_name="danger_flash_count", expr="avg(danger_flash_count{})")
+        .add_metric(metrics_name="safe_flash_count", expr="avg(safe_flash_count{})")
+        .add_metric(metrics_name="danger_effective_flash_count", expr="avg(danger_effective_flash_count{})")
+        .add_metric(metrics_name="danger_ineffective_flash_count", expr="avg(danger_ineffective_flash_count{})")
+        .add_metric(metrics_name="unknown_flash_count", expr="avg(unknown_flash_count{})")
         .end_panel()
-        .add_panel(
-            name="eff_flash_cnt",
-            name_en="effective_flash_count",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="effective_flash_count",
-            expr="avg(effective_flash_count{})",
-        )
+        .add_panel(name="flash_outcome_aux", name_en="flash_outcome_aux", type="line")
+        .add_metric(metrics_name="flash_leave_threat_count", expr="avg(flash_leave_threat_count{})")
+        .add_metric(metrics_name="escape_effective_flash_count", expr="avg(escape_effective_flash_count{})")
+        .add_metric(metrics_name="non_escape_effective_flash_count", expr="avg(non_escape_effective_flash_count{})")
+        .add_metric(metrics_name="escape_flash_count", expr="avg(escape_flash_count{})")
+        .add_metric(metrics_name="invalid_flash_count", expr="avg(invalid_flash_count{})")
         .end_panel()
-        .add_panel(
-            name="ineff_flash_cnt",
-            name_en="ineffective_flash_count",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="ineffective_flash_count",
-            expr="avg(ineffective_flash_count{})",
-        )
+        .add_panel(name="flash_outcome_sum", name_en="flash_outcome_sum", type="line")
+        .add_metric(metrics_name="flash_reward_sum", expr="avg(flash_reward_sum{})")
+        .add_metric(metrics_name="flash_distance_delta_sum", expr="avg(flash_distance_delta_sum{})")
         .end_panel()
-        .add_panel(
-            name="danger_flash_count",
-            name_en="danger_flash_count",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="danger_flash_count",
-            expr="avg(danger_flash_count{})",
-        )
+        .end_group()
+        .add_group(group_name="flash_decision", group_name_en="flash_decision")
+        .add_panel(name="flash_decision_cnt", name_en="flash_decision_counts", type="line")
+        .add_metric(metrics_name="flash_eval_trigger_count", expr="avg(flash_eval_trigger_count{})")
+        .add_metric(metrics_name="flash_execute_count", expr="avg(flash_execute_count{})")
+        .add_metric(metrics_name="flash_execute_rate", expr="avg(flash_execute_rate{})")
         .end_panel()
-        .add_panel(
-            name="safe_flash_count",
-            name_en="safe_flash_count",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="safe_flash_count",
-            expr="avg(safe_flash_count{})",
-        )
+        .add_panel(name="flash_decision_skips", name_en="flash_decision_skips", type="line")
+        .add_metric(metrics_name="flash_skip_cooldown_count", expr="avg(flash_skip_cooldown_count{})")
+        .add_metric(metrics_name="flash_skip_no_safe_candidate_count", expr="avg(flash_skip_no_safe_candidate_count{})")
+        .add_metric(metrics_name="flash_skip_move_better_count", expr="avg(flash_skip_move_better_count{})")
         .end_panel()
-        .add_panel(
-            name="unknown_flash_count",
-            name_en="unknown_flash_count",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="unknown_flash_count",
-            expr="avg(unknown_flash_count{})",
-        )
+        .add_panel(name="flash_decision_cmp", name_en="flash_decision_compare", type="line")
+        .add_metric(metrics_name="best_flash_better_than_move_count", expr="avg(best_flash_better_than_move_count{})")
+        .add_metric(metrics_name="best_move_better_than_flash_count", expr="avg(best_move_better_than_flash_count{})")
         .end_panel()
-        .add_panel(
-            name="danger_eff_flash",
-            name_en="danger_effective_flash_count",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="danger_effective_flash_count",
-            expr="avg(danger_effective_flash_count{})",
-        )
+        .end_group()
+        .add_group(group_name="flash_effect", group_name_en="flash_effect")
+        .add_panel(name="flash_effect_escape", name_en="flash_effect_escape", type="line")
+        .add_metric(metrics_name="flash_leave_threat_rate", expr="avg(flash_leave_threat_rate{})")
+        .add_metric(metrics_name="effective_flash_rate", expr="avg(effective_flash_rate{})")
+        .add_metric(metrics_name="danger_effective_flash_rate", expr="avg(danger_effective_flash_rate{})")
         .end_panel()
-        .add_panel(
-            name="danger_ineff_flash",
-            name_en="danger_ineffective_flash_count",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="danger_ineffective_flash_count",
-            expr="avg(danger_ineffective_flash_count{})",
-        )
+        .add_panel(name="flash_effect_gain", name_en="flash_effect_gain", type="line")
+        .add_metric(metrics_name="avg_flash_distance_gain", expr="avg(avg_flash_distance_gain{})")
+        .add_metric(metrics_name="avg_flash_min_margin_gain", expr="avg(avg_flash_min_margin_gain{})")
+        .add_metric(metrics_name="avg_flash_openness_gain", expr="avg(avg_flash_openness_gain{})")
         .end_panel()
-        .add_panel(
-            name="escape_flash_count",
-            name_en="escape_flash_count",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="escape_flash_count",
-            expr="avg(escape_flash_count{})",
-        )
+        .add_panel(name="flash_effect_survive", name_en="flash_effect_survive", type="line")
+        .add_metric(metrics_name="post_flash_survive_5_rate", expr="avg(post_flash_survive_5_rate{})")
+        .add_metric(metrics_name="avg_flash_distance_delta_per_flash", expr="avg(avg_flash_distance_delta_per_flash{})")
+        .add_metric(metrics_name="avg_flash_reward_per_flash", expr="avg(avg_flash_reward_per_flash{})")
         .end_panel()
-        .add_panel(
-            name="invalid_flash_count",
-            name_en="invalid_flash_count",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="invalid_flash_count",
-            expr="avg(invalid_flash_count{})",
-        )
+        .end_group()
+        .add_group(group_name="flash_state", group_name_en="flash_state_transition")
+        .add_panel(name="flash_state_cnt", name_en="flash_state_transition_count", type="line")
+        .add_metric(metrics_name="flash_pre_in_threat_count", expr="avg(flash_pre_in_threat_count{})")
+        .add_metric(metrics_name="flash_pre_in_near_threat_count", expr="avg(flash_pre_in_near_threat_count{})")
+        .add_metric(metrics_name="flash_leave_danger_count", expr="avg(flash_leave_danger_count{})")
         .end_panel()
-        .add_panel(
-            name="flash_reward_sum",
-            name_en="flash_reward_sum",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="flash_reward_sum",
-            expr="avg(flash_reward_sum{})",
-        )
+        .add_panel(name="flash_state_rate", name_en="flash_state_transition_rate", type="line")
+        .add_metric(metrics_name="flash_pre_in_threat_rate", expr="avg(flash_pre_in_threat_rate{})")
+        .add_metric(metrics_name="flash_pre_in_near_threat_rate", expr="avg(flash_pre_in_near_threat_rate{})")
+        .add_metric(metrics_name="flash_leave_danger_rate", expr="avg(flash_leave_danger_rate{})")
         .end_panel()
-        .add_panel(
-            name="flash_dist_delta",
-            name_en="flash_distance_delta_sum",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="flash_distance_delta_sum",
-            expr="avg(flash_distance_delta_sum{})",
-        )
+        .end_group()
+        .add_group(group_name="flash_failure", group_name_en="flash_failure")
+        .add_panel(name="flash_failure_rates", name_en="flash_failure_rates", type="line")
+        .add_metric(metrics_name="invalid_flash_rate", expr="avg(invalid_flash_rate{})")
+        .add_metric(metrics_name="safe_flash_rate", expr="avg(safe_flash_rate{})")
+        .add_metric(metrics_name="post_flash_dead_end_rate", expr="avg(post_flash_dead_end_rate{})")
         .end_panel()
-        .add_panel(
-            name="flash_survive_5_rate",
-            name_en="flash_survive_5_rate",
-            type="line",
-        )
-        .add_metric(
-            metrics_name="flash_survive_5_rate",
-            expr="avg(flash_survive_5_rate{})",
-        )
+        .add_panel(name="flash_failure_counts", name_en="flash_failure_counts", type="line")
+        .add_metric(metrics_name="post_flash_dead_end_count", expr="avg(post_flash_dead_end_count{})")
+        .add_metric(metrics_name="early_flash_count", expr="avg(early_flash_count{})")
+        .add_metric(metrics_name="early_flash_episode_count", expr="avg(early_flash_episode_count{})")
+        .end_panel()
+        .end_group()
+        .add_group(group_name="flash_terrain", group_name_en="flash_terrain")
+        .add_panel(name="flash_terrain_wall", name_en="flash_terrain_wall", type="line")
+        .add_metric(metrics_name="wall_cross_flash_count", expr="avg(wall_cross_flash_count{})")
+        .add_metric(metrics_name="wall_cross_effective_count", expr="avg(wall_cross_effective_count{})")
+        .add_metric(metrics_name="wall_cross_effective_rate", expr="avg(wall_cross_effective_rate{})")
+        .end_panel()
+        .add_panel(name="flash_terrain_choke", name_en="flash_terrain_choke", type="line")
+        .add_metric(metrics_name="choke_escape_flash_count", expr="avg(choke_escape_flash_count{})")
+        .add_metric(metrics_name="choke_escape_effective_count", expr="avg(choke_escape_effective_count{})")
+        .add_metric(metrics_name="choke_escape_effective_rate", expr="avg(choke_escape_effective_rate{})")
         .end_panel()
         .end_group()
         .build()
