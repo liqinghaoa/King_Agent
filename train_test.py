@@ -6,7 +6,7 @@
 """
 Author: Tencent AI Arena Authors
 """
-
+##增强了LSTM的特征
 from kaiwudrl.common.utils.train_test_utils import run_train_test
 
 # To run the train_test, you must modify the algorithm name here. It must be one of algorithm_name_list.
