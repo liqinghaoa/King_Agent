@@ -4,7 +4,7 @@
 # Copyright (c) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Agent class for recurrent discrete SAC.龙的code
+Agent class for recurrent discrete SAC.龙的code112323
 """
 
 import json
@@ -175,6 +175,11 @@ class Agent(BaseAgent):
             "persistent_dead_end_follow_rate": 0.0,
             "dead_end_pretrigger_rate": 0.0,
             "dead_end_deeper_block_rate": 0.0,
+            "confirmed_dead_end_rate": 0.0,
+            "dead_end_reentry_block_rate": 0.0,
+            "persistent_dead_end_active_rate": 0.0,
+            "persistent_dead_end_commit_rate": 0.0,
+            "persistent_dead_end_success_follow_rate": 0.0,
             "discovery_step_rate": 0.0,
             "map_coverage_ratio": 0.0,
             "hidden_treasure_memory_rate": 0.0,

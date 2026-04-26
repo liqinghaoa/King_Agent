@@ -93,6 +93,7 @@ DEAD_END_COMMIT_MAX_HOLD_STEPS = 6
 DEAD_END_TARGET_REPLAN_STALL_STEPS = 2
 DEAD_END_TARGET_MIN_BRANCH_FACTOR = 2
 DEAD_END_TARGET_REACH_DIST_CELLS = 1
+DEAD_END_REENTRY_BLOCK_STEPS = 8
 
 MOVE_DELTAS = [
     (1, 0),
@@ -1138,8 +1139,17 @@ class Preprocessor:
         self.persistent_dead_end_replan_count = 0
         self.persistent_dead_end_follow_available_step_count = 0
         self.persistent_dead_end_follow_step_count = 0
+        self.persistent_dead_end_active_step_count = 0
+        self.persistent_dead_end_commit_step_count = 0
+        self.persistent_dead_end_success_after_follow_count = 0
+        self.persistent_dead_end_followed_once = False
         self.dead_end_pretrigger_step_count = 0
         self.dead_end_deeper_block_step_count = 0
+        self.confirmed_dead_end_step_count = 0
+        self.dead_end_reentry_active_step_count = 0
+        self.dead_end_reentry_block_step_count = 0
+        self.dead_end_terminal_pos = None
+        self.dead_end_reentry_block_steps = 0
         self.persistent_dead_end_active_steps = 0
         self.persistent_dead_end_stall_steps = 0
         self.persistent_dead_end_last_dist = None
@@ -1161,6 +1171,7 @@ class Preprocessor:
         self.prev_persistent_dead_end_available = False
         self.prev_persistent_dead_end_action = None
         self.prev_dead_end_pretrigger = False
+        self.prev_confirmed_dead_end = False
         self.prev_dead_end_reference_target_pos = None
         self.prev_dead_end_reference_action = None
         self.prev_persistent_dead_end_target_active = False
@@ -1255,13 +1266,38 @@ class Preprocessor:
                 / max(1, self.persistent_dead_end_follow_available_step_count),
                 4,
             ),
+            "persistent_dead_end_active_rate": round(
+                self.persistent_dead_end_active_step_count / steps,
+                4,
+            ),
+            "persistent_dead_end_commit_rate": round(
+                self.persistent_dead_end_commit_step_count / steps,
+                4,
+            ),
+            "persistent_dead_end_success_follow_rate": round(
+                self.persistent_dead_end_success_after_follow_count
+                / max(1, self.dead_end_exit_success_count),
+                4,
+            ),
             "dead_end_pretrigger_rate": round(
                 self.dead_end_pretrigger_step_count / steps,
                 4,
             ),
             "dead_end_deeper_block_rate": round(
                 self.dead_end_deeper_block_step_count
-                / max(1, self.dead_end_pretrigger_step_count),
+                / max(
+                    1,
+                    self.confirmed_dead_end_step_count
+                    + self.dead_end_reentry_active_step_count,
+                ),
+                4,
+            ),
+            "confirmed_dead_end_rate": round(
+                self.confirmed_dead_end_step_count / steps,
+                4,
+            ),
+            "dead_end_reentry_block_rate": round(
+                self.dead_end_reentry_block_step_count / steps,
                 4,
             ),
             "discovery_step_rate": round(self.discovery_step_count / steps, 4),
@@ -1298,9 +1334,22 @@ class Preprocessor:
         self.persistent_dead_end_active_steps = 0
         self.persistent_dead_end_stall_steps = 0
         self.persistent_dead_end_last_dist = None
+        self.persistent_dead_end_followed_once = False
         if clear_tracking:
             self.dead_end_exit_tracking_active = False
             self.dead_end_exit_remaining_steps = 0
+
+    def _start_dead_end_reentry_block(self, current_pos_tuple=None):
+        terminal_dist = _chebyshev_dist_cells(current_pos_tuple, self.dead_end_terminal_pos)
+        if (
+            self.dead_end_terminal_pos is not None
+            and (
+                self.persistent_dead_end_active_steps >= 2
+                or self.persistent_dead_end_followed_once
+                or (terminal_dist is not None and terminal_dist >= 2)
+            )
+        ):
+            self.dead_end_reentry_block_steps = int(DEAD_END_REENTRY_BLOCK_STEPS)
 
     def _activate_persistent_dead_end_target(
         self,
@@ -1326,6 +1375,7 @@ class Preprocessor:
         self.persistent_dead_end_active_steps = 0
         self.persistent_dead_end_stall_steps = 0
         self.persistent_dead_end_last_dist = None
+        self.persistent_dead_end_followed_once = False
         if not was_tracking:
             self.dead_end_exit_trigger_count += 1
         self.dead_end_exit_tracking_active = True
@@ -2247,13 +2297,19 @@ class Preprocessor:
         local_escape_target_reachable = bool(
             local_escape_meta.get("target_reachable", False)
         )
-        local_escape_meta["used_persistent_target"] = False
-        dead_end_local_mode = bool(
-            dead_end_under_pressure and not flash_escape_possible and local_escape_action is not None
-        )
         current_pos_tuple = (int(hero_pos["x"]), int(hero_pos["z"]))
         dead_end_exit_success = False
         dead_end_deeper_action_blocked = False
+        dead_end_reentry_action_blocked = False
+        persistent_dead_end_just_activated = False
+        persistent_followed_this_step = bool(
+            0 <= last_action < 8
+            and self.prev_persistent_dead_end_available
+            and self.prev_persistent_dead_end_action is not None
+            and (last_action % 8) == self.prev_persistent_dead_end_action
+        )
+        if persistent_followed_this_step:
+            self.persistent_dead_end_followed_once = True
         dead_end_pressure_for_pretrigger = bool(
             current_danger
             or danger_rising_flag > 0
@@ -2261,23 +2317,30 @@ class Preprocessor:
             or cur_min_dist_norm < DEAD_END_PRETRIGGER_DIST_NORM
         )
         dead_end_pretrigger = bool(
-            current_local_branch_factor <= LOCAL_ESCAPE_MAX_BRANCH_FACTOR
+            current_local_branch_factor <= LOCAL_DEAD_END_MAX_BRANCH_FACTOR
             and local_escape_action is not None
+            and planned_local_escape_target_abs_pos is not None
             and dead_end_pressure_for_pretrigger
+        )
+        confirmed_dead_end = bool(
+            current_local_branch_factor <= LOCAL_DEAD_END_MAX_BRANCH_FACTOR
+            and local_escape_action is not None
+            and planned_local_escape_target_abs_pos is not None
+            and local_escape_target_reachable
+            and local_escape_target_branch_factor >= CORRIDOR_EXIT_BRANCH_FACTOR
+        )
+        local_escape_meta["used_persistent_target"] = False
+        dead_end_local_mode = bool(
+            (confirmed_dead_end or self.persistent_dead_end_target_active)
+            and not flash_escape_possible
+            and local_escape_action is not None
         )
 
         def _can_seed_persistent_dead_end_target():
             return bool(
-                local_escape_action is not None
+                confirmed_dead_end
+                and local_escape_action is not None
                 and planned_local_escape_target_abs_pos is not None
-                and (
-                    dead_end_local_mode
-                    or dead_end_pretrigger
-                    or (
-                        current_local_branch_factor <= LOCAL_ESCAPE_MAX_BRANCH_FACTOR
-                        and dead_end_pressure_for_pretrigger
-                    )
-                )
             )
 
         def _activate_current_escape_target(replan_count):
@@ -2288,6 +2351,23 @@ class Preprocessor:
                 replan_count=replan_count,
             )
 
+        def _persistent_exit_ready(target_dist):
+            terminal_dist = _chebyshev_dist_cells(current_pos_tuple, self.dead_end_terminal_pos)
+            has_retreat_progress = bool(
+                self.persistent_dead_end_active_steps >= 2
+                or self.persistent_dead_end_followed_once
+                or (terminal_dist is not None and terminal_dist >= 2)
+            )
+            if not has_retreat_progress:
+                return False
+            return bool(
+                current_local_branch_factor >= DEAD_END_TARGET_MIN_BRANCH_FACTOR
+                or (
+                    target_dist is not None
+                    and target_dist <= DEAD_END_TARGET_REACH_DIST_CELLS
+                )
+            )
+
         if (
             self.persistent_dead_end_target_active
             and self.persistent_dead_end_target_pos is not None
@@ -2296,18 +2376,12 @@ class Preprocessor:
                 current_pos_tuple,
                 self.persistent_dead_end_target_pos,
             )
-            if (
-                (
-                    current_local_branch_factor >= DEAD_END_TARGET_MIN_BRANCH_FACTOR
-                    and not dead_end_pressure_for_pretrigger
-                )
-                or (
-                    current_target_dist is not None
-                    and current_target_dist <= DEAD_END_TARGET_REACH_DIST_CELLS
-                )
-            ):
+            if _persistent_exit_ready(current_target_dist):
                 dead_end_exit_success = True
                 self.dead_end_exit_success_count += 1
+                if self.persistent_dead_end_followed_once:
+                    self.persistent_dead_end_success_after_follow_count += 1
+                self._start_dead_end_reentry_block(current_pos_tuple)
                 self._clear_persistent_dead_end_target(clear_tracking=True)
             elif not _in_map_bounds(
                 self.persistent_dead_end_target_pos[0],
@@ -2322,7 +2396,11 @@ class Preprocessor:
             and not self.persistent_dead_end_target_active
             and _can_seed_persistent_dead_end_target()
         ):
-            _activate_current_escape_target(replan_count=0)
+            self.dead_end_terminal_pos = current_pos_tuple
+            self.dead_end_reentry_block_steps = 0
+            persistent_dead_end_just_activated = bool(
+                _activate_current_escape_target(replan_count=0)
+            )
 
         persistent_target_action = None
         persistent_target_reachable = False
@@ -2339,17 +2417,14 @@ class Preprocessor:
                 self.persistent_dead_end_target_pos,
             )
             if (
-                (
-                    current_local_branch_factor >= DEAD_END_TARGET_MIN_BRANCH_FACTOR
-                    and not dead_end_pressure_for_pretrigger
-                )
-                or (
-                    persistent_target_dist is not None
-                    and persistent_target_dist <= DEAD_END_TARGET_REACH_DIST_CELLS
-                )
+                not persistent_dead_end_just_activated
+                and _persistent_exit_ready(persistent_target_dist)
             ):
                 dead_end_exit_success = True
                 self.dead_end_exit_success_count += 1
+                if self.persistent_dead_end_followed_once:
+                    self.persistent_dead_end_success_after_follow_count += 1
+                self._start_dead_end_reentry_block(current_pos_tuple)
                 self._clear_persistent_dead_end_target(clear_tracking=True)
                 break
 
@@ -2470,6 +2545,7 @@ class Preprocessor:
 
             next_replan_count = int(self.persistent_dead_end_replan_count) + 1
             if next_replan_count <= 1 and _can_seed_persistent_dead_end_target():
+                self.dead_end_terminal_pos = current_pos_tuple
                 if _activate_current_escape_target(replan_count=next_replan_count):
                     persistent_target_action = None
                     persistent_target_reachable = False
@@ -2482,15 +2558,16 @@ class Preprocessor:
             persistent_target_dist = None
             break
 
+        dead_end_local_mode = bool(
+            (confirmed_dead_end or self.persistent_dead_end_target_active)
+            and not flash_escape_possible
+            and local_escape_action is not None
+        )
         base_local_commit_mode = bool(
-            dead_end_local_mode
+            confirmed_dead_end
+            and not self.persistent_dead_end_target_active
             and local_escape_action is not None
             and local_escape_quality >= LOCAL_COMMIT_MIN_QUALITY
-            and (
-                cur_min_dist_norm < LOCAL_COMMIT_TRIGGER_DIST_NORM
-                or _detect_same_cell_stall(self.position_history, current_pos_tuple, stall_steps=2)
-                or _detect_two_cell_oscillation(self.position_history, current_pos_tuple)
-            )
         )
         if self.persistent_dead_end_target_active or not base_local_commit_mode:
             self.nonpersistent_dead_end_commit_remaining = 0
@@ -2508,13 +2585,17 @@ class Preprocessor:
             and not self.persistent_dead_end_target_active
             and self.nonpersistent_dead_end_commit_remaining > 0
         )
-        local_commit_mode = bool(
-            (
-                self.persistent_dead_end_target_active
-                and local_escape_action is not None
-                and self.persistent_dead_end_commit_remaining > 0
+        persistent_commit_mode = bool(
+            self.persistent_dead_end_target_active
+            and local_escape_action is not None
+            and self.persistent_dead_end_commit_remaining > 0
+            and (
+                persistent_target_action is not None
+                or persistent_dead_end_just_activated
             )
-            or short_local_commit_mode
+        )
+        local_commit_mode = bool(
+            persistent_commit_mode or short_local_commit_mode
         )
 
         flash_commit_mode = bool(
@@ -2625,59 +2706,41 @@ class Preprocessor:
                     1 if action_idx in allowed_move_actions and base_legal_action[action_idx] > 0 else 0
                 )
 
-        if dead_end_pretrigger and not flash_commit_mode:
-            pretrigger_legal_before_block = list(legal_action[:8])
-            pretrigger_target_pos = (
-                self.persistent_dead_end_target_pos
-                if self.persistent_dead_end_target_active
-                else local_escape_target_abs_pos
-            )
-            current_target_dist = _chebyshev_dist_cells(
+        reentry_block_active = bool(
+            self.dead_end_reentry_block_steps > 0
+            and self.dead_end_terminal_pos is not None
+            and not self.persistent_dead_end_target_active
+            and not flash_commit_mode
+        )
+        if reentry_block_active:
+            reentry_legal_before_block = list(legal_action[:8])
+            current_terminal_dist = _chebyshev_dist_cells(
                 current_pos_tuple,
-                pretrigger_target_pos,
+                self.dead_end_terminal_pos,
             )
-            blocked_deeper_actions = set()
+            blocked_reentry_actions = set()
             for action_idx in range(8):
-                if base_legal_action[action_idx] <= 0:
+                if base_legal_action[action_idx] <= 0 or legal_action[action_idx] <= 0:
                     continue
-                deeper_action = False
-                if local_escape_action is not None and action_idx == _opposite_action(local_escape_action):
-                    deeper_action = True
-                if pretrigger_target_pos is not None:
-                    next_target_dist = _target_distance_after_move(
-                        map_info,
-                        hero_pos,
-                        action_idx,
-                        pretrigger_target_pos,
-                    )
-                    if (
-                        next_target_dist is not None
-                        and current_target_dist is not None
-                        and next_target_dist > current_target_dist
-                    ):
-                        deeper_action = True
-                if deeper_action:
-                    if pretrigger_legal_before_block[action_idx] > 0:
-                        blocked_deeper_actions.add(action_idx)
+                next_terminal_dist = _target_distance_after_move(
+                    map_info,
+                    hero_pos,
+                    action_idx,
+                    self.dead_end_terminal_pos,
+                )
+                if (
+                    next_terminal_dist is not None
+                    and current_terminal_dist is not None
+                    and next_terminal_dist < current_terminal_dist
+                ):
+                    blocked_reentry_actions.add(action_idx)
                     legal_action[action_idx] = 0
             if not any(legal_action[:8]):
-                fallback_action = None
-                if (
-                    persistent_target_action is not None
-                    and base_legal_action[int(persistent_target_action)] > 0
-                ):
-                    fallback_action = int(persistent_target_action)
-                elif (
-                    local_escape_action is not None
-                    and base_legal_action[int(local_escape_action)] > 0
-                ):
-                    fallback_action = int(local_escape_action)
-                elif best_move_action is not None and base_legal_action[int(best_move_action)] > 0:
-                    fallback_action = int(best_move_action)
-                if fallback_action is not None:
-                    legal_action[fallback_action] = 1
-                    blocked_deeper_actions.discard(fallback_action)
-            dead_end_deeper_action_blocked = bool(blocked_deeper_actions)
+                for action_idx in range(8):
+                    legal_action[action_idx] = reentry_legal_before_block[action_idx]
+                blocked_reentry_actions.clear()
+            dead_end_reentry_action_blocked = bool(blocked_reentry_actions)
+            dead_end_deeper_action_blocked = dead_end_reentry_action_blocked
         if sum(legal_action) == 0:
             fallback_action = None
             if (
@@ -2701,6 +2764,11 @@ class Preprocessor:
             if fallback_action is not None:
                 legal_action = [0] * 16
                 legal_action[int(fallback_action)] = 1
+        if self.dead_end_reentry_block_steps > 0 and not self.persistent_dead_end_target_active:
+            self.dead_end_reentry_block_steps = max(
+                0,
+                int(self.dead_end_reentry_block_steps) - 1,
+            )
         legal_flash_action_count = int(sum(legal_action[8:]))
 
         frontier_flag, frontier_dir_norm, frontier_dist_norm, frontier_action, current_is_frontier = (
@@ -2743,11 +2811,6 @@ class Preprocessor:
             guidance_dir_norm = _action_to_dir_norm(best_flash_action)
             guidance_dist_norm = 1.0 - float(best_flash_info.get("landing_ratio", 0.0))
             guidance_source = "flash_planner"
-        elif dead_end_pretrigger and local_escape_flag > 0.5 and local_escape_action is not None:
-            guidance_flag = local_escape_flag
-            guidance_dir_norm = local_escape_dir_norm
-            guidance_dist_norm = local_escape_dist_norm
-            guidance_source = "dead_end_pretrigger"
         elif dead_end_local_mode and local_escape_flag > 0.5 and local_escape_action is not None:
             guidance_flag = local_escape_flag
             guidance_dir_norm = local_escape_dir_norm
@@ -2790,6 +2853,7 @@ class Preprocessor:
 
         frontier_local_commit_mode = bool(
             guidance_source in {"frontier", "anti_oscillation"}
+            and (confirmed_dead_end or self.persistent_dead_end_target_active)
             and not flash_escape_possible
             and local_escape_action is not None
             and local_escape_quality >= LOCAL_COMMIT_MIN_QUALITY
@@ -2986,13 +3050,20 @@ class Preprocessor:
                 self.dead_end_entry_count += 1
             if blocked_flash_count > 0:
                 self.flash_blocked_step_count += 1
-            if dead_end_under_pressure:
-                if flash_escape_possible:
-                    self.dead_end_flash_escape_step_count += 1
-                elif dead_end_local_mode:
-                    self.dead_end_local_mode_step_count += 1
+            if flash_escape_possible:
+                self.dead_end_flash_escape_step_count += 1
+            if dead_end_local_mode:
+                self.dead_end_local_mode_step_count += 1
+            if confirmed_dead_end:
+                self.confirmed_dead_end_step_count += 1
+            if self.persistent_dead_end_target_active:
+                self.persistent_dead_end_active_step_count += 1
+            if reentry_block_active:
+                self.dead_end_reentry_active_step_count += 1
             if local_commit_mode:
                 self.dead_end_local_commit_step_count += 1
+            if persistent_commit_mode:
+                self.persistent_dead_end_commit_step_count += 1
             if self.prev_dead_end_flash_available and self.prev_dead_end_flash_action is not None:
                 self.dead_end_flash_available_step_count += 1
                 if last_action >= 8 and (last_action % 8) == self.prev_dead_end_flash_action:
@@ -3017,8 +3088,9 @@ class Preprocessor:
                     self.persistent_dead_end_follow_step_count += 1
             if dead_end_pretrigger:
                 self.dead_end_pretrigger_step_count += 1
-                if dead_end_deeper_action_blocked:
-                    self.dead_end_deeper_block_step_count += 1
+            if dead_end_reentry_action_blocked:
+                self.dead_end_reentry_block_step_count += 1
+                self.dead_end_deeper_block_step_count += 1
             if new_discovered_count > 0 or current_is_frontier:
                 self.discovery_step_count += 1
             if hidden_treasure_flag > 0.5:
@@ -3107,7 +3179,7 @@ class Preprocessor:
         buff_reward = 0.25 if buff_remain > self.last_buff_remain + 1e-6 else 0.0
         if visit_count == 1:
             explore_reward = 0.02
-            if dead_end_pretrigger or self.persistent_dead_end_target_active:
+            if confirmed_dead_end or self.persistent_dead_end_target_active:
                 explore_reward *= 0.25
         else:
             revisit_penalty = -0.006 * min(5, visit_count - 1)
@@ -3184,7 +3256,7 @@ class Preprocessor:
         dead_end_deeper_penalty = 0.0
         if (
             0 <= last_action < 8
-            and (self.prev_dead_end_pretrigger or self.prev_persistent_dead_end_target_active)
+            and (self.prev_confirmed_dead_end or self.prev_persistent_dead_end_target_active)
             and dead_end_deeper_move_this_step
         ):
             dead_end_deeper_penalty -= 0.04
@@ -3240,13 +3312,18 @@ class Preprocessor:
             else None
         )
         self.prev_dead_end_pretrigger = bool(dead_end_pretrigger)
-        self.prev_dead_end_reference_target_pos = (
-            self.persistent_dead_end_target_pos
-            if self.persistent_dead_end_target_active
-            else local_escape_target_abs_pos
-        )
+        self.prev_confirmed_dead_end = bool(confirmed_dead_end)
+        if self.persistent_dead_end_target_active:
+            self.prev_dead_end_reference_target_pos = self.persistent_dead_end_target_pos
+        elif confirmed_dead_end:
+            self.prev_dead_end_reference_target_pos = local_escape_target_abs_pos
+        else:
+            self.prev_dead_end_reference_target_pos = None
         self.prev_dead_end_reference_action = (
-            int(local_escape_action) if local_escape_action is not None else None
+            int(local_escape_action)
+            if (self.persistent_dead_end_target_active or confirmed_dead_end)
+            and local_escape_action is not None
+            else None
         )
         self.prev_persistent_dead_end_target_active = bool(
             self.persistent_dead_end_target_active
@@ -3321,6 +3398,7 @@ class Preprocessor:
             "cur_min_monster_dist_norm": round(float(cur_min_dist_norm), 4),
             "flash_escape_possible": int(flash_escape_possible),
             "dead_end_local_mode": int(dead_end_local_mode),
+            "confirmed_dead_end": int(confirmed_dead_end),
             "dead_end_pretrigger": int(dead_end_pretrigger),
             "dead_end_local_commit_mode": int(local_commit_mode),
             "corridor_escape_mode": int(corridor_escape_mode),
@@ -3339,6 +3417,13 @@ class Preprocessor:
             "dead_end_exit_tracking_active": int(self.dead_end_exit_tracking_active),
             "dead_end_exit_remaining_steps": int(self.dead_end_exit_remaining_steps),
             "dead_end_exit_success": int(dead_end_exit_success),
+            "dead_end_terminal_pos": (
+                [int(self.dead_end_terminal_pos[0]), int(self.dead_end_terminal_pos[1])]
+                if self.dead_end_terminal_pos is not None
+                else [-1, -1]
+            ),
+            "dead_end_reentry_block_steps": int(self.dead_end_reentry_block_steps),
+            "dead_end_reentry_action_blocked": int(dead_end_reentry_action_blocked),
             "persistent_dead_end_target_active": int(self.persistent_dead_end_target_active),
             "persistent_dead_end_target_pos": (
                 [
@@ -3351,6 +3436,7 @@ class Preprocessor:
             "persistent_dead_end_target_branch_factor": int(
                 self.persistent_dead_end_target_branch_factor
             ),
+            "persistent_dead_end_active_steps": int(self.persistent_dead_end_active_steps),
             "persistent_dead_end_target_steps": int(self.persistent_dead_end_target_steps),
             "persistent_dead_end_commit_remaining": int(
                 self.persistent_dead_end_commit_remaining
@@ -3358,6 +3444,9 @@ class Preprocessor:
             "persistent_dead_end_replan_count": int(
                 self.persistent_dead_end_replan_count
             ),
+            "persistent_dead_end_followed_once": int(self.persistent_dead_end_followed_once),
+            "persistent_dead_end_just_activated": int(persistent_dead_end_just_activated),
+            "persistent_dead_end_commit_mode": int(persistent_commit_mode),
             "persistent_dead_end_action": (
                 int(local_escape_action)
                 if self.persistent_dead_end_target_active and local_escape_action is not None

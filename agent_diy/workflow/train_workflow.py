@@ -385,8 +385,13 @@ class EpisodeRunner:
                         f"dead_end_exit_success_rate:{episode_metrics['dead_end_exit_success_rate']:.3f} "
                         f"dead_end_reverse_follow_rate:{episode_metrics['dead_end_reverse_follow_rate']:.3f} "
                         f"persistent_dead_end_follow_rate:{episode_metrics['persistent_dead_end_follow_rate']:.3f} "
+                        f"persistent_dead_end_active_rate:{episode_metrics['persistent_dead_end_active_rate']:.3f} "
+                        f"persistent_dead_end_commit_rate:{episode_metrics['persistent_dead_end_commit_rate']:.3f} "
+                        f"persistent_dead_end_success_follow_rate:{episode_metrics['persistent_dead_end_success_follow_rate']:.3f} "
                         f"dead_end_pretrigger_rate:{episode_metrics['dead_end_pretrigger_rate']:.3f} "
                         f"dead_end_deeper_block_rate:{episode_metrics['dead_end_deeper_block_rate']:.3f} "
+                        f"confirmed_dead_end_rate:{episode_metrics['confirmed_dead_end_rate']:.3f} "
+                        f"dead_end_reentry_block_rate:{episode_metrics['dead_end_reentry_block_rate']:.3f} "
                         f"discovery_step_rate:{episode_metrics['discovery_step_rate']:.3f} "
                         f"map_coverage_ratio:{episode_metrics['map_coverage_ratio']:.3f} "
                         f"hidden_treasure_memory_rate:{episode_metrics['hidden_treasure_memory_rate']:.3f} "
@@ -579,11 +584,26 @@ class EpisodeRunner:
                             "persistent_dead_end_follow_rate": round(
                                 float(episode_metrics["persistent_dead_end_follow_rate"]), 4
                             ),
+                            "persistent_dead_end_active_rate": round(
+                                float(episode_metrics["persistent_dead_end_active_rate"]), 4
+                            ),
+                            "persistent_dead_end_commit_rate": round(
+                                float(episode_metrics["persistent_dead_end_commit_rate"]), 4
+                            ),
+                            "persistent_dead_end_success_follow_rate": round(
+                                float(episode_metrics["persistent_dead_end_success_follow_rate"]), 4
+                            ),
                             "dead_end_pretrigger_rate": round(
                                 float(episode_metrics["dead_end_pretrigger_rate"]), 4
                             ),
                             "dead_end_deeper_block_rate": round(
                                 float(episode_metrics["dead_end_deeper_block_rate"]), 4
+                            ),
+                            "confirmed_dead_end_rate": round(
+                                float(episode_metrics["confirmed_dead_end_rate"]), 4
+                            ),
+                            "dead_end_reentry_block_rate": round(
+                                float(episode_metrics["dead_end_reentry_block_rate"]), 4
                             ),
                         }
                         self.monitor.put_data({os.getpid(): monitor_data})
