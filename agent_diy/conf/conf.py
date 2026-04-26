@@ -1,89 +1,124 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
 ###########################################################################
-# Copyright (C) 1998 - 2026 Tencent. All Rights Reserved.
+# Copyright (c) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Configuration for the DIY PPO stage-3A agent.
+Configuration for the discrete SAC experiment.
 """
+
+import numpy as np
 
 
 class Config:
-    # Stage 3A keeps the compact vector layout, but expands legal_action
-    # from 8 movement actions to the full 16-action environment space:
-    # hero_self(4), monster_1(5), monster_2(5), local_map(16),
-    # legal_action(16), progress(2).
+    """Discrete SAC hyperparameters, feature dimensions, and recurrent setup."""
+
+    HERO_FEAT_DIM = 4
+    MONSTER_FEAT_DIM = 7
+    MAP_FEAT_DIM = 16
+    TARGET_FEAT_DIM = 6
+    PATH_FEAT_DIM = 16
+    LEGAL_ACTION_DIM = 16
+    PROGRESS_FEAT_DIM = 10
+    ACTION_NUM = 16
+
     FEATURES = [
-        4,
-        5,
-        5,
-        16,
-        16,
-        2,
+        HERO_FEAT_DIM,
+        MONSTER_FEAT_DIM,
+        MONSTER_FEAT_DIM,
+        MAP_FEAT_DIM,
+        TARGET_FEAT_DIM,
+        PATH_FEAT_DIM,
+        LEGAL_ACTION_DIM,
+        PROGRESS_FEAT_DIM,
     ]
     FEATURE_SPLIT_SHAPE = FEATURES
     FEATURE_LEN = sum(FEATURE_SPLIT_SHAPE)
     DIM_OF_OBSERVATION = FEATURE_LEN
 
-    # Compatibility aliases used by the original DIY template.
-    USE_CNN = False
-    VIEW_SIZE = 0
-    FEATURE_VECTOR_SHAPE = (DIM_OF_OBSERVATION,)
-    FEATURE_IMAGE_SHAPE = (4, VIEW_SIZE + 1, VIEW_SIZE + 1)
+    HERO_TEMPORAL_DIM = 9
+    MONSTER_TEMPORAL_DIM = 14
+    PAIR_TEMPORAL_DIM = 5
+    RISK_SUMMARY_DIM = 16
+    LAST_ACTION_FEAT_DIM = LEGAL_ACTION_DIM
+    TEMPORAL_FEATURES = [
+        HERO_TEMPORAL_DIM,
+        MONSTER_TEMPORAL_DIM,
+        MONSTER_TEMPORAL_DIM,
+        PAIR_TEMPORAL_DIM,
+        RISK_SUMMARY_DIM,
+        LAST_ACTION_FEAT_DIM,
+    ]
+    TEMPORAL_FEATURE_SPLIT_SHAPE = TEMPORAL_FEATURES
+    DIM_OF_TEMPORAL_OBSERVATION = sum(TEMPORAL_FEATURE_SPLIT_SHAPE)
 
-    # Full action space: 0-7 movement, 8-15 flash.
-    ACTION_NUM = 16
-    ACTION_SHAPE = (ACTION_NUM,)
+    USE_RECURRENT = True
+    USE_GRU = False
+    SEQ_LEN = 12
+    BURN_IN = 4
+    LEARN_LEN = 8
 
-    VALUE_NUM = 1
-    VALUE_SHAPE = (VALUE_NUM,)
+    SEQUENCE_FIELD_SPLIT_SHAPE = [
+        DIM_OF_OBSERVATION,
+        DIM_OF_TEMPORAL_OBSERVATION,
+        ACTION_NUM,
+        1,
+        1,
+        DIM_OF_OBSERVATION,
+        DIM_OF_TEMPORAL_OBSERVATION,
+        ACTION_NUM,
+        1,
+        1,
+    ]
+    PACKED_STEP_DIM = sum(SEQUENCE_FIELD_SPLIT_SHAPE)
+    PACKED_SEQUENCE_DIM = SEQ_LEN * PACKED_STEP_DIM
 
-    # PPO hyperparameters, aligned with agent_ppo for easier comparison.
+    STATIC_FEATURE_START = HERO_FEAT_DIM + 2 * MONSTER_FEAT_DIM
+    STATIC_FEATURE_DIM = DIM_OF_OBSERVATION - STATIC_FEATURE_START
+
+    HIDDEN_DIM = 128
+    MID_DIM = 64
+
+    STATIC_HIDDEN_DIM = 64
+    DYNAMIC_HIDDEN_DIM = 64
+    MONSTER_EMBED_DIM = 32
+    HERO_EMBED_DIM = 32
+    PAIR_EMBED_DIM = 16
+    RISK_EMBED_DIM = 32
+    ACTION_EMBED_DIM = 16
+    LSTM_HIDDEN_DIM = 64
+    LSTM_NUM_LAYERS = 1
+    RECURRENT_DROPOUT = 0.0
+
+    ENABLE_SOFT_FLASH_CANDIDATES = False
+    SOFT_FLASH_TOPK = 2
+
+    RNN_DEBUG_STATE = False
+    RNN_STATE_LOG_FIRST_N_STEPS = 3
+    RNN_STATE_LOG_INTERVAL = 50
+    RNN_STATE_CHANGE_EPS = 1e-6
+    TEMPORAL_SUMMARY_LOG = True
+    TEMPORAL_SUMMARY_INTERVAL = 1
+    PLANNER_TEMPORAL_LOG = True
+
     GAMMA = 0.99
-    LAMDA = 0.95
-    INIT_LEARNING_RATE_START = 0.0003
-    START_LR = INIT_LEARNING_RATE_START
-    BETA_START = 0.001
-    ENTROPY_LOSS_COEFF = BETA_START
-    CLIP_PARAM = 0.2
-    VF_COEF = 1.0
-    VALUE_LOSS_COEFF = VF_COEF
-    GRAD_CLIP_RANGE = 0.5
+    TAU = 0.005
 
-    # Flash escape strategy V1 switches.
-    ENABLE_FLASH_ESCAPE_V1 = True
-    DISABLE_LEGACY_FLASH_REWARD = True
+    POLICY_LR = 3e-4
+    CRITIC_LR = 3e-4
+    ALPHA_LR = 3e-4
+    EPS = 1e-8
 
-    # Flash escape trigger thresholds.
-    FLASH_THREAT_CHEB_DISTANCE = 1.0
-    FLASH_NEAR_THREAT_CHEB_DISTANCE = 2.0
-    FLASH_TRIGGER_DANGER_DISTANCE = 6.0
-    FLASH_TRIGGER_NEAR_DANGER_DISTANCE = 10.0
-    FLASH_OVERRIDE_MARGIN = 2.0
-    FLASH_MIN_DISTANCE_GAIN = 1.0
-    FLASH_MIN_OPENNESS_GAIN = 2.0
-    FLASH_DEAD_END_THRESHOLD = 6
-    FLASH_EARLY_STEP_THRESHOLD = 10
-    FLASH_NEAR_TRIGGER_SCORE_MARGIN = 1.5
-    FLASH_NEAR_TRIGGER_MIN_MARGIN_GAIN = 0.5
-    FLASH_ESCAPE_DISTANCE_GAIN = 1.0
-    FLASH_ESCAPE_MIN_MARGIN_GAIN = 0.5
-    FLASH_DANGER_EFFECTIVE_DISTANCE_GAIN = 0.5
-    FLASH_DANGER_EFFECTIVE_MIN_MARGIN_GAIN = 0.25
-    FLASH_NON_TRIGGER_SUPPRESS = 2.5
-    FLASH_GATE_BLOCK_BIAS = 12.0
-    FLASH_GATE_CHOSEN_BIAS = 8.0
-    FLASH_GATE_MOVE_SUPPRESS_WHEN_EXECUTE = 6.0
+    # Conservative alpha setup for the first stability-focused SAC run.
+    AUTO_ALPHA = False
+    FIXED_ALPHA = 0.05
+    INIT_ALPHA = FIXED_ALPHA
+    MIN_LOG_ALPHA = float(np.log(1e-4))
+    MAX_LOG_ALPHA = float(np.log(1.0))
 
-    # Flash planner scoring weights.
-    FLASH_WALL_CROSS_BONUS = 2.0
-    FLASH_CHOKE_ESCAPE_BONUS = 2.0
-    FLASH_INVALID_PENALTY_WEIGHT = 6.0
-    FLASH_LEAVE_THREAT_SCORE_WEIGHT = 5.0
-    FLASH_DISTANCE_GAIN_WEIGHT = 1.0
-    FLASH_MIN_MARGIN_WEIGHT = 1.5
-    FLASH_OPENNESS_WEIGHT = 0.7
+    # If AUTO_ALPHA is re-enabled later, prefer a lower target entropy than the
+    # original near-uniform policy target to avoid another temperature blow-up.
+    TARGET_ENTROPY_RATIO = 0.60
+    TARGET_ENTROPY = float(np.log(ACTION_NUM) * TARGET_ENTROPY_RATIO)
 
-    # Planner-adjusted policy logits.
-    FLASH_POLICY_BIAS_SCALE = 1.0
-    FLASH_POLICY_MIN_SUPPRESS = 1.0
+    GRAD_CLIP_RANGE = 5.0
