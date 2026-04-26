@@ -20,7 +20,6 @@ except ModuleNotFoundError:  # pragma: no cover
 
 import numpy as np
 
-from agent_diy.conf.conf import Config
 from agent_diy.feature.definition import TransitionData, sample_process
 from common_python.utils.workflow_disaster_recovery import handle_disaster_recovery
 from tools.metrics_utils import get_training_metrics
@@ -189,26 +188,6 @@ def workflow(envs, agents, logger=None, monitor=None, *args, **kwargs):
         logger.error("usr_conf is None, please check agent_diy/conf/train_env_conf.toml")
         return
 
-    if logger:
-        logger.info(
-            "[RNN-CONFIG] "
-            + json.dumps(
-                {
-                    "use_recurrent": bool(Config.USE_RECURRENT),
-                    "seq_len": int(Config.SEQ_LEN),
-                    "burn_in": int(Config.BURN_IN),
-                    "learn_len": int(Config.LEARN_LEN),
-                    "lstm_hidden_dim": int(Config.LSTM_HIDDEN_DIM),
-                    "lstm_num_layers": int(Config.LSTM_NUM_LAYERS),
-                    "use_gru": bool(Config.USE_GRU),
-                    "static_hidden_dim": int(Config.STATIC_HIDDEN_DIM),
-                    "dynamic_hidden_dim": int(Config.DYNAMIC_HIDDEN_DIM),
-                },
-                ensure_ascii=True,
-                sort_keys=True,
-            )
-        )
-
     episode_runner = EpisodeRunner(
         env=env,
         agent=agent,
@@ -331,7 +310,6 @@ class EpisodeRunner:
                     collected_buff = env_info.get("collected_buff", 0)
                     flash_count = env_info.get("flash_count", 0)
                     episode_metrics = self.agent.get_episode_metrics()
-                    temporal_summary = self.agent.get_temporal_summary()
 
                     final_reward = np.array([-10.0 if terminated else 10.0], dtype=np.float32)
                     collector[-1].reward = collector[-1].reward + final_reward
@@ -347,19 +325,6 @@ class EpisodeRunner:
                         f"result:{result_str} sim_score:{float(total_score):.1f} "
                         f"treasures:{int(treasures_collected)} buffs:{int(collected_buff)} "
                         f"flash:{int(flash_count)} total_reward:{total_reward:.3f} "
-                        f"flash_execute_count:{int(episode_metrics['flash_execute_count'])} "
-                        f"flash_action_count:{int(episode_metrics['flash_action_count'])} "
-                        f"danger_flash_count:{int(episode_metrics['danger_flash_count'])} "
-                        f"safe_flash_count:{int(episode_metrics['safe_flash_count'])} "
-                        f"effective_flash_count:{int(episode_metrics['effective_flash_count'])} "
-                        f"danger_effective_flash_count:{int(episode_metrics['danger_effective_flash_count'])} "
-                        f"flash_eval_trigger_count:{int(episode_metrics['flash_eval_trigger_count'])} "
-                        f"flash_leave_danger_count:{int(episode_metrics['flash_leave_danger_count'])} "
-                        f"flash_leave_threat_count:{int(episode_metrics['flash_leave_threat_count'])} "
-                        f"wall_cross_flash_count:{int(episode_metrics['wall_cross_flash_count'])} "
-                        f"wall_cross_effective_count:{int(episode_metrics['wall_cross_effective_count'])} "
-                        f"choke_escape_flash_count:{int(episode_metrics['choke_escape_flash_count'])} "
-                        f"choke_escape_effective_count:{int(episode_metrics['choke_escape_effective_count'])} "
                         f"stalled_rate:{episode_metrics['stalled_move_rate']:.3f} "
                         f"oscillation_alert_rate:{episode_metrics['oscillation_alert_rate']:.3f} "
                         f"effective_flash_rate:{episode_metrics['effective_flash_rate']:.3f} "
@@ -378,20 +343,14 @@ class EpisodeRunner:
                         f"revisit_rate:{episode_metrics['revisit_rate']:.3f} "
                         f"dead_end_entry_rate:{episode_metrics['dead_end_entry_rate']:.3f} "
                         f"dead_end_flash_escape_rate:{episode_metrics['dead_end_flash_escape_rate']:.3f} "
+                        f"dead_end_backtrack_rate:{episode_metrics['dead_end_backtrack_rate']:.3f} "
                         f"dead_end_local_mode_rate:{episode_metrics['dead_end_local_mode_rate']:.3f} "
                         f"dead_end_local_commit_rate:{episode_metrics['dead_end_local_commit_rate']:.3f} "
                         f"dead_end_flash_follow_rate:{episode_metrics['dead_end_flash_follow_rate']:.3f} "
+                        f"dead_end_backtrack_follow_rate:{episode_metrics['dead_end_backtrack_follow_rate']:.3f} "
                         f"dead_end_local_follow_rate:{episode_metrics['dead_end_local_follow_rate']:.3f} "
-                        f"dead_end_exit_success_rate:{episode_metrics['dead_end_exit_success_rate']:.3f} "
-                        f"dead_end_reverse_follow_rate:{episode_metrics['dead_end_reverse_follow_rate']:.3f} "
-                        f"persistent_dead_end_follow_rate:{episode_metrics['persistent_dead_end_follow_rate']:.3f} "
-                        f"persistent_dead_end_active_rate:{episode_metrics['persistent_dead_end_active_rate']:.3f} "
-                        f"persistent_dead_end_commit_rate:{episode_metrics['persistent_dead_end_commit_rate']:.3f} "
-                        f"persistent_dead_end_success_follow_rate:{episode_metrics['persistent_dead_end_success_follow_rate']:.3f} "
-                        f"dead_end_pretrigger_rate:{episode_metrics['dead_end_pretrigger_rate']:.3f} "
-                        f"dead_end_deeper_block_rate:{episode_metrics['dead_end_deeper_block_rate']:.3f} "
-                        f"confirmed_dead_end_rate:{episode_metrics['confirmed_dead_end_rate']:.3f} "
-                        f"dead_end_reentry_block_rate:{episode_metrics['dead_end_reentry_block_rate']:.3f} "
+                        f"post_flash_follow_rate:{episode_metrics['post_flash_follow_rate']:.3f} "
+                        f"post_flash_pause_rate:{episode_metrics['post_flash_pause_rate']:.3f} "
                         f"discovery_step_rate:{episode_metrics['discovery_step_rate']:.3f} "
                         f"map_coverage_ratio:{episode_metrics['map_coverage_ratio']:.3f} "
                         f"hidden_treasure_memory_rate:{episode_metrics['hidden_treasure_memory_rate']:.3f} "
@@ -400,25 +359,6 @@ class EpisodeRunner:
                         f"loop_survival_mode_rate:{episode_metrics['loop_survival_mode_rate']:.3f} "
                         f"loop_anchor_follow_rate:{episode_metrics['loop_anchor_follow_rate']:.3f}"
                     )
-
-                    if (
-                        self.logger
-                        and Config.TEMPORAL_SUMMARY_LOG
-                        and self.episode_cnt % max(1, int(Config.TEMPORAL_SUMMARY_INTERVAL)) == 0
-                    ):
-                        temporal_payload = {
-                            "episode": int(self.episode_cnt),
-                            "steps": int(step),
-                            "result": result_str,
-                            "map_id": map_profile["map_id"],
-                            "map_signature": map_profile["map_signature"],
-                        }
-                        if isinstance(temporal_summary, dict):
-                            temporal_payload.update(temporal_summary)
-                        self.logger.info(
-                            "[TEMPORAL-SUMMARY] "
-                            + json.dumps(temporal_payload, ensure_ascii=True, sort_keys=True)
-                        )
 
                     now = time.time()
                     if now - self.last_report_monitor_time >= 60 and self.monitor:
@@ -430,35 +370,6 @@ class EpisodeRunner:
                             "treasures_collected": int(treasures_collected),
                             "collected_buff": int(collected_buff),
                             "flash_count": int(flash_count),
-                            "flash_execute_count": int(episode_metrics["flash_execute_count"]),
-                            "flash_action_count": int(episode_metrics["flash_action_count"]),
-                            "danger_flash_count": int(episode_metrics["danger_flash_count"]),
-                            "safe_flash_count": int(episode_metrics["safe_flash_count"]),
-                            "effective_flash_count": int(episode_metrics["effective_flash_count"]),
-                            "danger_effective_flash_count": int(
-                                episode_metrics["danger_effective_flash_count"]
-                            ),
-                            "flash_eval_trigger_count": int(
-                                episode_metrics["flash_eval_trigger_count"]
-                            ),
-                            "flash_leave_danger_count": int(
-                                episode_metrics["flash_leave_danger_count"]
-                            ),
-                            "flash_leave_threat_count": int(
-                                episode_metrics["flash_leave_threat_count"]
-                            ),
-                            "wall_cross_flash_count": int(
-                                episode_metrics["wall_cross_flash_count"]
-                            ),
-                            "wall_cross_effective_count": int(
-                                episode_metrics["wall_cross_effective_count"]
-                            ),
-                            "choke_escape_flash_count": int(
-                                episode_metrics["choke_escape_flash_count"]
-                            ),
-                            "choke_escape_effective_count": int(
-                                episode_metrics["choke_escape_effective_count"]
-                            ),
                             "win_rate": 0.0 if terminated else 1.0,
                             "map_start_open_ratio": round(float(map_profile["start_open_ratio"]), 4),
                             "map_start_visible_treasures": int(map_profile["start_visible_treasures"]),
@@ -563,6 +474,9 @@ class EpisodeRunner:
                             "dead_end_flash_escape_rate": round(
                                 float(episode_metrics["dead_end_flash_escape_rate"]), 4
                             ),
+                            "dead_end_backtrack_rate": round(
+                                float(episode_metrics["dead_end_backtrack_rate"]), 4
+                            ),
                             "dead_end_local_mode_rate": round(
                                 float(episode_metrics["dead_end_local_mode_rate"]), 4
                             ),
@@ -572,38 +486,17 @@ class EpisodeRunner:
                             "dead_end_flash_follow_rate": round(
                                 float(episode_metrics["dead_end_flash_follow_rate"]), 4
                             ),
+                            "dead_end_backtrack_follow_rate": round(
+                                float(episode_metrics["dead_end_backtrack_follow_rate"]), 4
+                            ),
                             "dead_end_local_follow_rate": round(
                                 float(episode_metrics["dead_end_local_follow_rate"]), 4
                             ),
-                            "dead_end_exit_success_rate": round(
-                                float(episode_metrics["dead_end_exit_success_rate"]), 4
+                            "post_flash_follow_rate": round(
+                                float(episode_metrics["post_flash_follow_rate"]), 4
                             ),
-                            "dead_end_reverse_follow_rate": round(
-                                float(episode_metrics["dead_end_reverse_follow_rate"]), 4
-                            ),
-                            "persistent_dead_end_follow_rate": round(
-                                float(episode_metrics["persistent_dead_end_follow_rate"]), 4
-                            ),
-                            "persistent_dead_end_active_rate": round(
-                                float(episode_metrics["persistent_dead_end_active_rate"]), 4
-                            ),
-                            "persistent_dead_end_commit_rate": round(
-                                float(episode_metrics["persistent_dead_end_commit_rate"]), 4
-                            ),
-                            "persistent_dead_end_success_follow_rate": round(
-                                float(episode_metrics["persistent_dead_end_success_follow_rate"]), 4
-                            ),
-                            "dead_end_pretrigger_rate": round(
-                                float(episode_metrics["dead_end_pretrigger_rate"]), 4
-                            ),
-                            "dead_end_deeper_block_rate": round(
-                                float(episode_metrics["dead_end_deeper_block_rate"]), 4
-                            ),
-                            "confirmed_dead_end_rate": round(
-                                float(episode_metrics["confirmed_dead_end_rate"]), 4
-                            ),
-                            "dead_end_reentry_block_rate": round(
-                                float(episode_metrics["dead_end_reentry_block_rate"]), 4
+                            "post_flash_pause_rate": round(
+                                float(episode_metrics["post_flash_pause_rate"]), 4
                             ),
                         }
                         self.monitor.put_data({os.getpid(): monitor_data})

@@ -26,32 +26,6 @@ MAX_MONSTER_SPEED = 5.0
 MAX_DIST_BUCKET = 5.0
 MAX_FLASH_CD = 2000.0
 MAX_BUFF_DURATION = 50.0
-TEMPORAL_POS_DELTA_MAX = 10.0
-TEMPORAL_LAST_SEEN_CLIP = 10.0
-TEMPORAL_RECENT_VISIBLE_STEPS = 3
-TEMPORAL_STREAK_CLIP = 6.0
-TEMPORAL_PERSIST_CLIP = 10.0
-TEMPORAL_MARGIN_DELTA_MAX = 4.0
-TEMPORAL_BRANCH_DELTA_MAX = 4.0
-TEMPORAL_DIST_DELTA_MAX = 1.0
-TEMPORAL_SUMMARY_FIELDS = [
-    "monster_dx",
-    "monster_dz",
-    "monster_dist_delta",
-    "monster_last_seen_steps",
-    "monster_recently_visible_flag",
-    "encirclement_angle",
-    "encirclement_angle_delta",
-    "min_margin_delta",
-    "dual_side_pressure_flag",
-    "hero_dx",
-    "hero_dz",
-    "same_dir_streak_norm",
-    "recent_flash_flag",
-    "local_space_delta",
-    "margin_delta",
-    "danger_rising_flag",
-]
 
 SAFE_RESOURCE_DIST_NORM = 0.08
 CRITICAL_MONSTER_DIST_NORM = 0.045
@@ -66,14 +40,13 @@ FLASH_ESCAPE_GAIN_NORM = 0.03
 FLASH_DANGER_GAIN_NORM = 0.01
 FLASH_ESCAPE_TRIGGER_DIST_NORM = 0.06
 FLASH_WASTED_MOVE_NORM = 0.01
+SOFT_FLASH_KEEP_TOPK = 2
+SOFT_FLASH_KEEP_SCORE_TOLERANCE = 1.0
 LOCAL_DEAD_END_MAX_BRANCH_FACTOR = 1
 LOCAL_ESCAPE_MAX_BRANCH_FACTOR = 2
 LOCAL_SPACE_SEARCH_DEPTH = 3
 LOCAL_SPACE_SCORE_NORMALIZER = 10.0
 LOCAL_ESCAPE_SEARCH_DEPTH = 3
-CORRIDOR_ESCAPE_SEARCH_DEPTH = 8
-CORRIDOR_EXIT_BRANCH_FACTOR = 2
-DEAD_END_EXIT_WINDOW_STEPS = 8
 ANTI_OSCILLATION_MIN_LOCAL_QUALITY = 0.18
 FLASH_COMMIT_STALL_STEPS = 3
 LOCAL_COMMIT_TRIGGER_DIST_NORM = 0.08
@@ -86,14 +59,30 @@ PLANNER_TRUE_THREAT_SCORE_DELTA = 0.5
 CHOKE_ESCAPE_OPENNESS_GAIN = 0.18
 CHOKE_ESCAPE_BRANCH_GAIN = 2
 DEAD_END_SPACE_SCORE = 0.18
-DEAD_END_PRETRIGGER_DIST_NORM = 0.10
-DEAD_END_PRETRIGGER_PERSIST_STEPS = 2
-DEAD_END_COMMIT_HOLD_STEPS = 4
-DEAD_END_COMMIT_MAX_HOLD_STEPS = 6
-DEAD_END_TARGET_REPLAN_STALL_STEPS = 2
-DEAD_END_TARGET_MIN_BRANCH_FACTOR = 2
-DEAD_END_TARGET_REACH_DIST_CELLS = 1
-DEAD_END_REENTRY_BLOCK_STEPS = 8
+DEAD_END_BACKTRACK_GAIN_TOLERANCE = 0.01
+DEAD_END_BACKTRACK_MIN_DIST_NORM = 0.05
+BACKTRACK_EXIT_MIN_ROUTE_STEPS = 2
+LOCAL_REACTION_MIN_HISTORY = 4
+EARLY_TACTICAL_GRACE_STEPS = 6
+POST_FLASH_FOLLOW_MIN_DIST_NORM = 0.004
+POST_FLASH_PAUSE_DIST_NORM = 0.002
+ANTI_OSCILLATION_GOAL_NEAR_DIST_NORM = 0.04
+BACKTRACK_RETRY_SAFE_DIST_NORM = 0.10
+HIGH_PRESSURE_SURVIVE_REWARD = 0.006
+TREASURE_SCORE_REWARD_SCALE = 0.03
+TREASURE_APPROACH_REWARD_SCALE = 0.12
+UNSAFE_TREASURE_APPROACH_SCALE = 0.35
+PRESSURE_TREASURE_WINDOW_DIST_NORM = 0.12
+PRESSURE_TREASURE_MIN_SPACE_SCORE = 0.22
+BUFF_APPROACH_REWARD_SCALE = 0.05
+PASSIVE_BUFF_APPROACH_SCALE = 0.25
+TREASURE_PATH_FOLLOW_REWARD = 0.05
+BUFF_PATH_FOLLOW_REWARD = 0.02
+EXPLORE_REWARD_ON_NEW_CELL = 0.01
+REVISIT_PENALTY_SCALE = 0.007
+LOOP_REVISIT_PENALTY_DISCOUNT = 0.35
+BACKTRACK_REVISIT_PENALTY_DISCOUNT = 0.65
+DEAD_END_LOCAL_REVISIT_PENALTY_DISCOUNT = 0.15
 
 MOVE_DELTAS = [
     (1, 0),
@@ -153,100 +142,6 @@ def _dir_norm(direction):
     return _norm(direction, 8.0)
 
 
-def _signed_norm(v, max_abs):
-    max_abs = float(max(max_abs, 1e-6))
-    return float(np.clip(v, -max_abs, max_abs) / max_abs)
-
-
-def _dir_delta_norm(current_direction, previous_direction):
-    try:
-        current_idx = int(current_direction) - 1
-        previous_idx = int(previous_direction) - 1
-    except (TypeError, ValueError):
-        return 0.0
-    if current_idx < 0 or previous_idx < 0:
-        return 0.0
-    delta = ((current_idx - previous_idx + 4) % 8) - 4
-    return float(np.clip(delta / 4.0, -1.0, 1.0))
-
-
-def _angle_norm_from_vectors(vec_a, vec_b):
-    if vec_a is None or vec_b is None:
-        return 0.0
-    ax, az = vec_a
-    bx, bz = vec_b
-    if abs(ax) + abs(az) < 1e-6 or abs(bx) + abs(bz) < 1e-6:
-        return 0.0
-    angle_a = np.arctan2(float(az), float(ax))
-    angle_b = np.arctan2(float(bz), float(bx))
-    diff = abs((angle_a - angle_b + np.pi) % (2.0 * np.pi) - np.pi)
-    return float(np.clip(diff / np.pi, 0.0, 1.0))
-
-
-def _empty_monster_track():
-    return {
-        "has_pos": False,
-        "x": 0,
-        "z": 0,
-        "dist_norm": None,
-        "dir_raw": 0,
-        "speed_norm": None,
-        "last_seen_step": -1000,
-        "last_risk": False,
-    }
-
-
-def _new_temporal_stat():
-    return {
-        "count": 0,
-        "sum": 0.0,
-        "sum_sq": 0.0,
-        "min": 0.0,
-        "max": 0.0,
-        "nonzero_count": 0,
-    }
-
-
-def _update_temporal_stat(stat_bucket, value):
-    value = float(value)
-    if not np.isfinite(value):
-        value = 0.0
-    if stat_bucket["count"] == 0:
-        stat_bucket["min"] = value
-        stat_bucket["max"] = value
-    else:
-        stat_bucket["min"] = min(stat_bucket["min"], value)
-        stat_bucket["max"] = max(stat_bucket["max"], value)
-    stat_bucket["count"] += 1
-    stat_bucket["sum"] += value
-    stat_bucket["sum_sq"] += value * value
-    if abs(value) > 1e-8:
-        stat_bucket["nonzero_count"] += 1
-
-
-def _finalize_temporal_stat(stat_bucket):
-    count = int(stat_bucket.get("count", 0))
-    if count <= 0:
-        return {
-            "count": 0,
-            "mean": 0.0,
-            "std": 0.0,
-            "min": 0.0,
-            "max": 0.0,
-            "nonzero_rate": 0.0,
-        }
-    mean = float(stat_bucket["sum"]) / float(count)
-    variance = max(0.0, float(stat_bucket["sum_sq"]) / float(count) - mean * mean)
-    return {
-        "count": count,
-        "mean": round(mean, 6),
-        "std": round(float(np.sqrt(variance)), 6),
-        "min": round(float(stat_bucket["min"]), 6),
-        "max": round(float(stat_bucket["max"]), 6),
-        "nonzero_rate": round(float(stat_bucket["nonzero_count"]) / float(count), 6),
-    }
-
-
 def _sign(v):
     if abs(v) < 1e-6:
         return 0
@@ -267,12 +162,6 @@ def _opposite_action(action_idx):
     if action_idx is None:
         return None
     return (int(action_idx) + 4) % 8
-
-
-def _chebyshev_dist_cells(pos_a, pos_b):
-    if pos_a is None or pos_b is None:
-        return None
-    return max(abs(int(pos_a[0]) - int(pos_b[0])), abs(int(pos_a[1]) - int(pos_b[1])))
 
 
 def _organ_direction(hero_pos, organ):
@@ -370,6 +259,18 @@ def _local_cell_to_abs_pos(hero_pos, map_info, row, col):
     )
 
 
+def _abs_pos_to_local_cell(hero_pos, map_info, pos_key):
+    if map_info is None or len(map_info) == 0 or pos_key is None:
+        return None
+
+    center = len(map_info) // 2
+    col = center + int(pos_key[0]) - int(hero_pos["x"])
+    row = center + int(pos_key[1]) - int(hero_pos["z"])
+    if row < 0 or row >= len(map_info) or col < 0 or col >= len(map_info[0]):
+        return None
+    return row, col
+
+
 def _visible_monster_positions(monsters):
     positions = []
     for monster in monsters if isinstance(monsters, list) else []:
@@ -396,84 +297,6 @@ def _min_monster_chebyshev_margin_from_pos(monster_positions, pos_x, pos_z, defa
     return float(
         min(max(abs(int(pos_x) - mx), abs(int(pos_z) - mz)) for mx, mz in monster_positions)
     )
-
-
-def _target_distance_after_move(map_info, hero_pos, action_idx, target_abs_pos):
-    if map_info is None or len(map_info) == 0 or target_abs_pos is None:
-        return None
-
-    center = len(map_info) // 2
-    dx, dz = MOVE_DELTAS[int(action_idx)]
-    next_row = center + dz
-    next_col = center + dx
-    if not _can_step(map_info, center, center, next_row, next_col, dx, dz):
-        return None
-
-    next_abs_pos = _local_cell_to_abs_pos(hero_pos, map_info, next_row, next_col)
-    return _chebyshev_dist_cells(next_abs_pos, target_abs_pos)
-
-
-def _get_first_action_towards_abs_target(
-    map_info,
-    hero_pos,
-    target_abs_pos,
-    preferred_action=None,
-):
-    _get_first_action_towards_abs_target.last_path_steps = 0
-    _get_first_action_towards_abs_target.last_reachable = False
-    if (
-        map_info is None
-        or len(map_info) == 0
-        or target_abs_pos is None
-        or hero_pos is None
-        or not _in_map_bounds(target_abs_pos[0], target_abs_pos[1])
-        or not _in_local_view(hero_pos, target_abs_pos)
-    ):
-        return None
-
-    center = len(map_info) // 2
-    target_col = center + int(target_abs_pos[0]) - int(hero_pos["x"])
-    target_row = center + int(target_abs_pos[1]) - int(hero_pos["z"])
-    if not _is_passable(map_info, target_row, target_col):
-        return None
-    if target_row == center and target_col == center:
-        _get_first_action_towards_abs_target.last_reachable = True
-        return None
-
-    action_order = list(range(8))
-    if preferred_action is not None and int(preferred_action) in action_order:
-        preferred_action = int(preferred_action)
-        action_order = [preferred_action] + [
-            action_idx for action_idx in action_order if action_idx != preferred_action
-        ]
-
-    queue = deque([((center, center), 0, None)])
-    visited = {(center, center)}
-    while queue:
-        (row, col), steps, first_action = queue.popleft()
-        if (row, col) == (target_row, target_col):
-            _get_first_action_towards_abs_target.last_path_steps = int(steps)
-            _get_first_action_towards_abs_target.last_reachable = True
-            return first_action
-
-        for action_idx in action_order:
-            dx, dz = MOVE_DELTAS[action_idx]
-            next_row = row + dz
-            next_col = col + dx
-            next_key = (next_row, next_col)
-            if next_key in visited:
-                continue
-            if not _can_step(map_info, row, col, next_row, next_col, dx, dz):
-                continue
-            visited.add(next_key)
-            next_first_action = action_idx if first_action is None else first_action
-            queue.append((next_key, steps + 1, next_first_action))
-
-    return None
-
-
-_get_first_action_towards_abs_target.last_path_steps = 0
-_get_first_action_towards_abs_target.last_reachable = False
 
 
 def _threat_flags_from_pos(pos_x, pos_z, monster_positions, dist_norm=1.0):
@@ -797,33 +620,13 @@ def _get_local_escape_target(
     current_min_dist_norm,
     last_move_action=None,
 ):
-    default_meta = {
-        "corridor_escape_mode": False,
-        "local_escape_is_reverse": False,
-        "search_depth": int(LOCAL_ESCAPE_SEARCH_DEPTH),
-        "target_branch_factor": 0,
-        "target_abs_pos": None,
-        "target_path_steps": 0,
-        "target_space_score": 0.0,
-        "target_monster_gain": 0.0,
-        "target_reachable": False,
-        "used_exit_candidate": False,
-        "used_persistent_target": False,
-    }
-    _get_local_escape_target.last_meta = dict(default_meta)
     if map_info is None or len(map_info) == 0:
         return 0.0, 0.0, 1.0, None, 0.0
 
     center = len(map_info) // 2
-    current_branch_factor = _local_branch_factor(map_info, center, center)
-    corridor_escape_mode = current_branch_factor <= LOCAL_DEAD_END_MAX_BRANCH_FACTOR
-    search_depth = (
-        CORRIDOR_ESCAPE_SEARCH_DEPTH if corridor_escape_mode else LOCAL_ESCAPE_SEARCH_DEPTH
-    )
     queue = deque([((center, center), 0, None)])
     visited = {(center, center)}
     best_candidate = None
-    best_exit_candidate = None
 
     while queue:
         (row, col), steps, first_action = queue.popleft()
@@ -840,12 +643,8 @@ def _get_local_escape_target(
             )
             monster_gain = monster_dist_norm - float(current_min_dist_norm)
             direction_clear = _direction_clear_score(map_info, first_action, max_steps=2)
-            local_escape_is_reverse = bool(
-                last_move_action is not None
-                and first_action == _opposite_action(last_move_action)
-            )
             reversal_penalty = 0.0
-            if not corridor_escape_mode and local_escape_is_reverse:
+            if last_move_action is not None and first_action == _opposite_action(last_move_action):
                 reversal_penalty = 0.08
 
             quality = (
@@ -864,40 +663,9 @@ def _get_local_escape_target(
                 -steps,
             )
             if best_candidate is None or candidate_key > best_candidate[0]:
-                best_candidate = (
-                    candidate_key,
-                    first_action,
-                    steps,
-                    quality,
-                    branch_factor,
-                    local_escape_is_reverse,
-                    (int(abs_x), int(abs_z)),
-                    float(space_score),
-                    float(monster_gain),
-                )
+                best_candidate = (candidate_key, first_action, steps, quality)
 
-            if corridor_escape_mode and branch_factor >= CORRIDOR_EXIT_BRANCH_FACTOR:
-                exit_key = (
-                    -steps,
-                    monster_gain,
-                    space_score,
-                    branch_factor,
-                    direction_clear,
-                )
-                if best_exit_candidate is None or exit_key > best_exit_candidate[0]:
-                    best_exit_candidate = (
-                        exit_key,
-                        first_action,
-                        steps,
-                        quality,
-                        branch_factor,
-                        local_escape_is_reverse,
-                        (int(abs_x), int(abs_z)),
-                        float(space_score),
-                        float(monster_gain),
-                    )
-
-        if steps >= search_depth:
+        if steps >= LOCAL_ESCAPE_SEARCH_DEPTH:
             continue
 
         for action_idx, (dx, dz) in enumerate(MOVE_DELTAS):
@@ -913,53 +681,10 @@ def _get_local_escape_target(
             next_first_action = action_idx if first_action is None else first_action
             queue.append((next_key, steps + 1, next_first_action))
 
-    chosen_candidate = (
-        best_exit_candidate
-        if corridor_escape_mode and best_exit_candidate is not None
-        else best_candidate
-    )
-    if chosen_candidate is None:
-        _get_local_escape_target.last_meta = {
-            "corridor_escape_mode": bool(corridor_escape_mode),
-            "local_escape_is_reverse": False,
-            "search_depth": int(search_depth),
-            "target_branch_factor": 0,
-            "target_abs_pos": None,
-            "target_path_steps": 0,
-            "target_space_score": 0.0,
-            "target_monster_gain": 0.0,
-            "target_reachable": False,
-            "used_exit_candidate": False,
-            "used_persistent_target": False,
-        }
+    if best_candidate is None:
         return 0.0, 0.0, 1.0, None, 0.0
 
-    (
-        _,
-        best_action,
-        best_steps,
-        best_quality,
-        target_branch_factor,
-        local_escape_is_reverse,
-        target_abs_pos,
-        target_space_score,
-        target_monster_gain,
-    ) = chosen_candidate
-    _get_local_escape_target.last_meta = {
-        "corridor_escape_mode": bool(corridor_escape_mode),
-        "local_escape_is_reverse": bool(local_escape_is_reverse),
-        "search_depth": int(search_depth),
-        "target_branch_factor": int(target_branch_factor),
-        "target_abs_pos": target_abs_pos,
-        "target_path_steps": int(best_steps),
-        "target_space_score": float(target_space_score),
-        "target_monster_gain": float(target_monster_gain),
-        "target_reachable": True,
-        "used_exit_candidate": bool(
-            corridor_escape_mode and best_exit_candidate is not None
-        ),
-        "used_persistent_target": False,
-    }
+    _, best_action, best_steps, best_quality = best_candidate
     return (
         1.0,
         _action_to_dir_norm(best_action),
@@ -969,19 +694,130 @@ def _get_local_escape_target(
     )
 
 
-_get_local_escape_target.last_meta = {
-    "corridor_escape_mode": False,
-    "local_escape_is_reverse": False,
-    "search_depth": int(LOCAL_ESCAPE_SEARCH_DEPTH),
-    "target_branch_factor": 0,
-    "target_abs_pos": None,
-    "target_path_steps": 0,
-    "target_space_score": 0.0,
-    "target_monster_gain": 0.0,
-    "target_reachable": False,
-    "used_exit_candidate": False,
-    "used_persistent_target": False,
-}
+def _get_backtrack_exit_target(
+    route_history,
+    hero_pos,
+    map_info,
+    monster_positions,
+    current_min_dist_norm,
+    current_local_branch_factor,
+):
+    if map_info is None or len(map_info) == 0:
+        return 0.0, 0.0, 1.0, None, 0.0, 0, None, {
+            "route_steps": 0,
+            "branch_factor": 0,
+            "space_score": 0.0,
+            "monster_dist_norm": float(current_min_dist_norm),
+            "monster_gain": 0.0,
+            "quality": -1.0,
+        }
+
+    route_positions = list(route_history)
+    if len(route_positions) < 2:
+        return 0.0, 0.0, 1.0, None, 0.0, 0, None, {
+            "route_steps": 0,
+            "branch_factor": 0,
+            "space_score": 0.0,
+            "monster_dist_norm": float(current_min_dist_norm),
+            "monster_gain": 0.0,
+            "quality": -1.0,
+        }
+
+    current_pos = route_positions[-1]
+    previous_route = route_positions[:-1]
+    first_action = None
+    best_candidate = None
+    seen_positions = set()
+
+    for route_steps, pos_key in enumerate(reversed(previous_route), start=1):
+        if pos_key == current_pos or pos_key in seen_positions:
+            continue
+        seen_positions.add(pos_key)
+
+        if first_action is None:
+            first_action = _vector_to_action(
+                pos_key[0] - current_pos[0],
+                pos_key[1] - current_pos[1],
+            )
+        if first_action is None:
+            break
+
+        local_cell = _abs_pos_to_local_cell(hero_pos, map_info, pos_key)
+        if local_cell is None:
+            continue
+        row, col = local_cell
+        if not _is_passable(map_info, row, col):
+            continue
+
+        branch_factor = _local_branch_factor(map_info, row, col)
+        space_score = _local_space_score(map_info, row, col)
+        monster_dist_norm = _min_monster_dist_norm_from_pos(
+            monster_positions,
+            int(pos_key[0]),
+            int(pos_key[1]),
+            default=current_min_dist_norm,
+        )
+        monster_gain = monster_dist_norm - float(current_min_dist_norm)
+        route_progress = min(route_steps, 8) / 8.0
+        exit_bonus = 0.0
+        if branch_factor >= 2:
+            exit_bonus += 0.10
+        if branch_factor > current_local_branch_factor:
+            exit_bonus += 0.08
+        if space_score >= 0.45:
+            exit_bonus += 0.07
+
+        quality = (
+            0.34 * space_score
+            + 0.28 * np.clip(monster_gain / max(FLASH_ESCAPE_GAIN_NORM, 1e-6), -1.0, 1.0)
+            + 0.18 * min(branch_factor, 3) / 3.0
+            + 0.12 * route_progress
+            + exit_bonus
+        )
+        candidate_key = (
+            quality,
+            branch_factor,
+            space_score,
+            monster_gain,
+            route_progress,
+        )
+        if best_candidate is None or candidate_key > best_candidate[0]:
+            best_candidate = (
+                candidate_key,
+                first_action,
+                route_steps,
+                pos_key,
+                {
+                    "route_steps": int(route_steps),
+                    "branch_factor": int(branch_factor),
+                    "space_score": float(space_score),
+                    "monster_dist_norm": float(monster_dist_norm),
+                    "monster_gain": float(monster_gain),
+                    "quality": float(quality),
+                },
+            )
+
+    if best_candidate is None:
+        return 0.0, 0.0, 1.0, None, 0.0, 0, None, {
+            "route_steps": 0,
+            "branch_factor": 0,
+            "space_score": 0.0,
+            "monster_dist_norm": float(current_min_dist_norm),
+            "monster_gain": 0.0,
+            "quality": -1.0,
+        }
+
+    _, backtrack_action, route_steps, exit_pos, exit_info = best_candidate
+    return (
+        1.0,
+        _action_to_dir_norm(backtrack_action),
+        _norm(route_steps, MAP_SIZE * 1.41),
+        backtrack_action,
+        float(np.clip(exit_info["quality"], 0.0, 1.0)),
+        int(route_steps),
+        exit_pos,
+        exit_info,
+    )
 
 
 def _detect_two_cell_oscillation(position_history, current_pos):
@@ -1060,23 +896,17 @@ class Preprocessor:
         self.last_min_monster_dist_norm = 0.5
         self.last_min_margin_cells = 4.0
         self.last_local_space_score = 0.0
-        self.last_local_branch_factor = 0.0
         self.last_danger_state = False
         self.last_true_threat_state = False
         self.last_near_threat_state = False
         self.last_treasure_score = 0.0
         self.last_buff_remain = 0.0
         self.last_hero_pos = None
-        self.prev_action_dir = None
-        self.same_dir_streak = 0
-        self.recent_flash_steps = 0
-        self.near_threat_persist_steps = 0
-        self.prev_encirclement_angle = 0.0
-        self.prev_monster_tracks = [_empty_monster_track() for _ in range(2)]
         self.last_nearest_treasure_dist_norm = 1.0
         self.last_nearest_buff_dist_norm = 1.0
         self.visited_cells = {}
         self.position_history = deque(maxlen=6)
+        self.route_history = deque(maxlen=64)
 
         self.discovered_cells = {}
         self.known_treasures = {}
@@ -1102,14 +932,12 @@ class Preprocessor:
         self.danger_effective_flash_count = 0
         self.flash_blocked_step_count = 0
         self.flash_eval_trigger_count = 0
-        self.flash_execute_count = 0
         self.best_flash_better_than_move_count = 0
         self.no_flash_move_better_count = 0
         self.close_escape_flash_count = 0
         self.wall_cross_flash_count = 0
         self.choke_escape_flash_count = 0
         self.wall_cross_effective_count = 0
-        self.choke_escape_effective_count = 0
         self.flash_pre_in_threat_count = 0
         self.flash_pre_in_near_threat_count = 0
         self.flash_leave_danger_count = 0
@@ -1119,42 +947,18 @@ class Preprocessor:
         self.flash_min_margin_gain_sum = 0.0
         self.flash_openness_gain_sum = 0.0
         self.dead_end_flash_escape_step_count = 0
+        self.dead_end_backtrack_step_count = 0
         self.dead_end_local_mode_step_count = 0
         self.dead_end_local_commit_step_count = 0
         self.dead_end_flash_available_step_count = 0
         self.dead_end_flash_follow_step_count = 0
+        self.dead_end_backtrack_available_step_count = 0
+        self.dead_end_backtrack_follow_step_count = 0
         self.dead_end_local_available_step_count = 0
         self.dead_end_local_follow_step_count = 0
-        self.dead_end_exit_trigger_count = 0
-        self.dead_end_exit_success_count = 0
-        self.dead_end_exit_tracking_active = False
-        self.dead_end_exit_remaining_steps = 0
-        self.dead_end_reverse_available_step_count = 0
-        self.dead_end_reverse_follow_step_count = 0
-        self.persistent_dead_end_target_active = False
-        self.persistent_dead_end_target_pos = None
-        self.persistent_dead_end_target_branch_factor = 0
-        self.persistent_dead_end_target_steps = 0
-        self.persistent_dead_end_commit_remaining = 0
-        self.persistent_dead_end_replan_count = 0
-        self.persistent_dead_end_follow_available_step_count = 0
-        self.persistent_dead_end_follow_step_count = 0
-        self.persistent_dead_end_active_step_count = 0
-        self.persistent_dead_end_commit_step_count = 0
-        self.persistent_dead_end_success_after_follow_count = 0
-        self.persistent_dead_end_followed_once = False
-        self.dead_end_pretrigger_step_count = 0
-        self.dead_end_deeper_block_step_count = 0
-        self.confirmed_dead_end_step_count = 0
-        self.dead_end_reentry_active_step_count = 0
-        self.dead_end_reentry_block_step_count = 0
-        self.dead_end_terminal_pos = None
-        self.dead_end_reentry_block_steps = 0
-        self.persistent_dead_end_active_steps = 0
-        self.persistent_dead_end_stall_steps = 0
-        self.persistent_dead_end_last_dist = None
-        self.nonpersistent_dead_end_commit_remaining = 0
-        self.nonpersistent_dead_end_commit_armed = False
+        self.post_flash_follow_available_step_count = 0
+        self.post_flash_follow_step_count = 0
+        self.post_flash_pause_step_count = 0
         self.last_debug_info = {}
 
         self.prev_frontier_available = False
@@ -1164,24 +968,15 @@ class Preprocessor:
         self.prev_loop_survival_mode = False
         self.prev_dead_end_flash_available = False
         self.prev_dead_end_flash_action = None
+        self.prev_dead_end_backtrack_available = False
+        self.prev_dead_end_backtrack_action = None
         self.prev_dead_end_local_available = False
         self.prev_dead_end_local_action = None
-        self.prev_dead_end_reverse_available = False
-        self.prev_dead_end_reverse_action = None
-        self.prev_persistent_dead_end_available = False
-        self.prev_persistent_dead_end_action = None
-        self.prev_dead_end_pretrigger = False
-        self.prev_confirmed_dead_end = False
-        self.prev_dead_end_reference_target_pos = None
-        self.prev_dead_end_reference_action = None
-        self.prev_persistent_dead_end_target_active = False
+        self.prev_post_flash_follow_available = False
+        self.prev_post_flash_follow_action = None
         self.last_flash_info_by_action = {}
         self.prev_flash_info_by_action = {}
         self.prev_flash_planner_reason = "NO_FLASH_MOVE_IS_BETTER"
-        self.temporal_summary_steps = 0
-        self.temporal_stats = {
-            field_name: _new_temporal_stat() for field_name in TEMPORAL_SUMMARY_FIELDS
-        }
 
     def get_episode_metrics(self):
         steps = max(1, self.transition_count)
@@ -1192,7 +987,9 @@ class Preprocessor:
         planner_steps = max(1, self.flash_eval_trigger_count)
         wall_cross_steps = max(1, self.wall_cross_flash_count)
         dead_end_flash_steps = max(1, self.dead_end_flash_available_step_count)
+        dead_end_backtrack_steps = max(1, self.dead_end_backtrack_available_step_count)
         dead_end_local_steps = max(1, self.dead_end_local_available_step_count)
+        post_flash_steps = max(1, self.post_flash_follow_available_step_count)
         return {
             "stalled_move_rate": round(self.stalled_move_count / steps, 4),
             "oscillation_alert_rate": round(self.oscillation_step_count / steps, 4),
@@ -1244,61 +1041,23 @@ class Preprocessor:
             "revisit_rate": round(self.revisit_step_count / steps, 4),
             "dead_end_entry_rate": round(self.dead_end_entry_count / steps, 4),
             "dead_end_flash_escape_rate": round(self.dead_end_flash_escape_step_count / steps, 4),
+            "dead_end_backtrack_rate": round(self.dead_end_backtrack_step_count / steps, 4),
             "dead_end_local_mode_rate": round(self.dead_end_local_mode_step_count / steps, 4),
             "dead_end_local_commit_rate": round(self.dead_end_local_commit_step_count / steps, 4),
             "dead_end_flash_follow_rate": round(
                 self.dead_end_flash_follow_step_count / dead_end_flash_steps, 4
             ),
+            "dead_end_backtrack_follow_rate": round(
+                self.dead_end_backtrack_follow_step_count / dead_end_backtrack_steps, 4
+            ),
             "dead_end_local_follow_rate": round(
                 self.dead_end_local_follow_step_count / dead_end_local_steps, 4
             ),
-            "dead_end_exit_success_rate": round(
-                self.dead_end_exit_success_count / max(1, self.dead_end_exit_trigger_count),
-                4,
+            "post_flash_follow_rate": round(
+                self.post_flash_follow_step_count / post_flash_steps, 4
             ),
-            "dead_end_reverse_follow_rate": round(
-                self.dead_end_reverse_follow_step_count
-                / max(1, self.dead_end_reverse_available_step_count),
-                4,
-            ),
-            "persistent_dead_end_follow_rate": round(
-                self.persistent_dead_end_follow_step_count
-                / max(1, self.persistent_dead_end_follow_available_step_count),
-                4,
-            ),
-            "persistent_dead_end_active_rate": round(
-                self.persistent_dead_end_active_step_count / steps,
-                4,
-            ),
-            "persistent_dead_end_commit_rate": round(
-                self.persistent_dead_end_commit_step_count / steps,
-                4,
-            ),
-            "persistent_dead_end_success_follow_rate": round(
-                self.persistent_dead_end_success_after_follow_count
-                / max(1, self.dead_end_exit_success_count),
-                4,
-            ),
-            "dead_end_pretrigger_rate": round(
-                self.dead_end_pretrigger_step_count / steps,
-                4,
-            ),
-            "dead_end_deeper_block_rate": round(
-                self.dead_end_deeper_block_step_count
-                / max(
-                    1,
-                    self.confirmed_dead_end_step_count
-                    + self.dead_end_reentry_active_step_count,
-                ),
-                4,
-            ),
-            "confirmed_dead_end_rate": round(
-                self.confirmed_dead_end_step_count / steps,
-                4,
-            ),
-            "dead_end_reentry_block_rate": round(
-                self.dead_end_reentry_block_step_count / steps,
-                4,
+            "post_flash_pause_rate": round(
+                self.post_flash_pause_step_count / post_flash_steps, 4
             ),
             "discovery_step_rate": round(self.discovery_step_count / steps, 4),
             "map_coverage_ratio": round(len(self.discovered_cells) / float(MAP_AREA), 4),
@@ -1309,128 +1068,7 @@ class Preprocessor:
             "loop_anchor_follow_rate": round(
                 self.loop_anchor_follow_step_count / loop_steps, 4
             ),
-            "flash_action_count": int(self.flash_action_count),
-            "flash_execute_count": int(self.flash_execute_count),
-            "effective_flash_count": int(self.effective_flash_count),
-            "danger_flash_count": int(self.danger_flash_count),
-            "safe_flash_count": int(self.safe_flash_count),
-            "danger_effective_flash_count": int(self.danger_effective_flash_count),
-            "flash_eval_trigger_count": int(self.flash_eval_trigger_count),
-            "flash_leave_danger_count": int(self.flash_leave_danger_count),
-            "flash_leave_threat_count": int(self.flash_leave_threat_count),
-            "wall_cross_flash_count": int(self.wall_cross_flash_count),
-            "wall_cross_effective_count": int(self.wall_cross_effective_count),
-            "choke_escape_flash_count": int(self.choke_escape_flash_count),
-            "choke_escape_effective_count": int(self.choke_escape_effective_count),
         }
-
-    def _clear_persistent_dead_end_target(self, clear_tracking=False):
-        self.persistent_dead_end_target_active = False
-        self.persistent_dead_end_target_pos = None
-        self.persistent_dead_end_target_branch_factor = 0
-        self.persistent_dead_end_target_steps = 0
-        self.persistent_dead_end_commit_remaining = 0
-        self.persistent_dead_end_replan_count = 0
-        self.persistent_dead_end_active_steps = 0
-        self.persistent_dead_end_stall_steps = 0
-        self.persistent_dead_end_last_dist = None
-        self.persistent_dead_end_followed_once = False
-        if clear_tracking:
-            self.dead_end_exit_tracking_active = False
-            self.dead_end_exit_remaining_steps = 0
-
-    def _start_dead_end_reentry_block(self, current_pos_tuple=None):
-        terminal_dist = _chebyshev_dist_cells(current_pos_tuple, self.dead_end_terminal_pos)
-        if (
-            self.dead_end_terminal_pos is not None
-            and (
-                self.persistent_dead_end_active_steps >= 2
-                or self.persistent_dead_end_followed_once
-                or (terminal_dist is not None and terminal_dist >= 2)
-            )
-        ):
-            self.dead_end_reentry_block_steps = int(DEAD_END_REENTRY_BLOCK_STEPS)
-
-    def _activate_persistent_dead_end_target(
-        self,
-        target_abs_pos,
-        target_branch_factor,
-        target_path_steps,
-        replan_count=0,
-    ):
-        if target_abs_pos is None:
-            self._clear_persistent_dead_end_target(clear_tracking=False)
-            return False
-
-        was_tracking = bool(self.dead_end_exit_tracking_active)
-        self.persistent_dead_end_target_active = True
-        self.persistent_dead_end_target_pos = (
-            int(target_abs_pos[0]),
-            int(target_abs_pos[1]),
-        )
-        self.persistent_dead_end_target_branch_factor = int(target_branch_factor)
-        self.persistent_dead_end_target_steps = int(max(0, target_path_steps or 0))
-        self.persistent_dead_end_commit_remaining = int(DEAD_END_COMMIT_HOLD_STEPS)
-        self.persistent_dead_end_replan_count = int(max(0, replan_count))
-        self.persistent_dead_end_active_steps = 0
-        self.persistent_dead_end_stall_steps = 0
-        self.persistent_dead_end_last_dist = None
-        self.persistent_dead_end_followed_once = False
-        if not was_tracking:
-            self.dead_end_exit_trigger_count += 1
-        self.dead_end_exit_tracking_active = True
-        self.dead_end_exit_remaining_steps = int(DEAD_END_EXIT_WINDOW_STEPS)
-        return True
-
-    def get_temporal_summary(self):
-        summary = {
-            "temporal_step_count": int(self.temporal_summary_steps),
-            "temporal_feature_dim": int(Config.DIM_OF_TEMPORAL_OBSERVATION),
-        }
-        for field_name in TEMPORAL_SUMMARY_FIELDS:
-            summary[field_name] = _finalize_temporal_stat(
-                self.temporal_stats.get(field_name, _new_temporal_stat())
-            )
-        return summary
-
-    def _record_temporal_stat(self, field_name, value):
-        if field_name not in self.temporal_stats:
-            self.temporal_stats[field_name] = _new_temporal_stat()
-        _update_temporal_stat(self.temporal_stats[field_name], value)
-
-    def _record_temporal_values(
-        self,
-        hero_dx_norm,
-        hero_dz_norm,
-        same_dir_streak_norm,
-        recent_flash_flag,
-        monster_temporal_feats,
-        pair_trend_feat,
-        risk_summary_feat,
-    ):
-        self.temporal_summary_steps += 1
-        self._record_temporal_stat("hero_dx", hero_dx_norm)
-        self._record_temporal_stat("hero_dz", hero_dz_norm)
-        self._record_temporal_stat("same_dir_streak_norm", same_dir_streak_norm)
-        self._record_temporal_stat("recent_flash_flag", recent_flash_flag)
-
-        for monster_temporal in monster_temporal_feats:
-            self._record_temporal_stat("monster_dx", float(monster_temporal[7]))
-            self._record_temporal_stat("monster_dz", float(monster_temporal[8]))
-            self._record_temporal_stat("monster_dist_delta", float(monster_temporal[9]))
-            self._record_temporal_stat("monster_last_seen_steps", float(monster_temporal[12]))
-            self._record_temporal_stat(
-                "monster_recently_visible_flag",
-                float(monster_temporal[13]),
-            )
-
-        self._record_temporal_stat("encirclement_angle", float(pair_trend_feat[1]))
-        self._record_temporal_stat("encirclement_angle_delta", float(pair_trend_feat[2]))
-        self._record_temporal_stat("min_margin_delta", float(pair_trend_feat[3]))
-        self._record_temporal_stat("dual_side_pressure_flag", float(pair_trend_feat[4]))
-        self._record_temporal_stat("danger_rising_flag", float(risk_summary_feat[11]))
-        self._record_temporal_stat("local_space_delta", float(risk_summary_feat[13]))
-        self._record_temporal_stat("margin_delta", float(risk_summary_feat[15]))
 
     def _update_discovered_map(self, hero_pos, map_info):
         if map_info is None or len(map_info) == 0:
@@ -1693,216 +1331,32 @@ class Preprocessor:
             dtype=np.float32,
         )
 
-        hero_dx_norm = 0.0
-        hero_dz_norm = 0.0
-        if self.last_hero_pos is not None:
-            hero_dx_norm = _signed_norm(
-                int(hero_pos["x"]) - int(self.last_hero_pos["x"]),
-                TEMPORAL_POS_DELTA_MAX,
-            )
-            hero_dz_norm = _signed_norm(
-                int(hero_pos["z"]) - int(self.last_hero_pos["z"]),
-                TEMPORAL_POS_DELTA_MAX,
-            )
-
-        current_action_dir = int(last_action % 8) if last_action >= 0 else None
-        current_same_dir_streak = 0
-        recent_turn_flag = 0.0
-        if current_action_dir is not None:
-            if self.prev_action_dir is not None and current_action_dir == self.prev_action_dir:
-                current_same_dir_streak = min(self.same_dir_streak + 1, int(TEMPORAL_STREAK_CLIP))
-            else:
-                current_same_dir_streak = 1
-            if self.prev_action_dir is not None and current_action_dir != self.prev_action_dir:
-                recent_turn_flag = 1.0
-        recent_flash_flag = 1.0 if (last_action >= 8 or self.recent_flash_steps > 0) else 0.0
-
         monsters = frame_state.get("monsters", [])
         monster_positions = _visible_monster_positions(monsters)
         monster_feats = []
-        monster_temporal_feats = []
-        effective_monster_tracks = []
-        visible_monster_count = 0
-        planner_monster_dist_delta = 0.0
-        planner_monster_last_seen_steps = 0.0
-        planner_monster_recently_visible_flag = 0.0
-        planner_monster_priority = None
         for idx in range(2):
-            prev_track = dict(self.prev_monster_tracks[idx]) if idx < len(self.prev_monster_tracks) else _empty_monster_track()
             if idx < len(monsters):
                 monster = monsters[idx]
                 is_in_view = float(monster.get("is_in_view", 0))
                 monster_pos = monster["pos"]
                 dist_bucket_norm = _norm(monster.get("hero_l2_distance", MAX_DIST_BUCKET), MAX_DIST_BUCKET)
                 dist_norm = _safe_exact_dist(hero_pos, monster_pos) if is_in_view else dist_bucket_norm
-                speed_norm = _norm(monster.get("speed", 1), MAX_MONSTER_SPEED)
                 monster_feats.append(
                     np.array(
                         [
                             is_in_view,
                             _norm(monster_pos["x"], MAP_SIZE) if is_in_view else 0.0,
                             _norm(monster_pos["z"], MAP_SIZE) if is_in_view else 0.0,
-                            speed_norm,
+                            _norm(monster.get("speed", 1), MAX_MONSTER_SPEED),
                             dist_norm,
                             _dir_norm(monster.get("hero_relative_direction", 0)),
                             dist_bucket_norm,
                         ],
                         dtype=np.float32,
                     )
-                )
-
-                monster_dx_norm = 0.0
-                monster_dz_norm = 0.0
-                if is_in_view and prev_track.get("has_pos", False):
-                    monster_dx_norm = _signed_norm(
-                        int(monster_pos["x"]) - int(prev_track["x"]),
-                        TEMPORAL_POS_DELTA_MAX,
-                    )
-                    monster_dz_norm = _signed_norm(
-                        int(monster_pos["z"]) - int(prev_track["z"]),
-                        TEMPORAL_POS_DELTA_MAX,
-                    )
-
-                prev_dist_norm = prev_track.get("dist_norm")
-                monster_dist_delta = (
-                    float(np.clip(dist_norm - float(prev_dist_norm), -TEMPORAL_DIST_DELTA_MAX, TEMPORAL_DIST_DELTA_MAX))
-                    if prev_dist_norm is not None
-                    else 0.0
-                )
-                monster_dir_delta = _dir_delta_norm(
-                    monster.get("hero_relative_direction", 0),
-                    prev_track.get("dir_raw", 0),
-                )
-                prev_speed_norm = prev_track.get("speed_norm")
-                monster_speed_delta = (
-                    float(np.clip(speed_norm - float(prev_speed_norm), -1.0, 1.0))
-                    if prev_speed_norm is not None
-                    else 0.0
-                )
-                if is_in_view:
-                    last_seen_steps = 0.0
-                    recently_visible_flag = 1.0
-                    visible_monster_count += 1
-                    track_x = int(monster_pos["x"])
-                    track_z = int(monster_pos["z"])
-                    has_track_pos = True
-                else:
-                    last_seen_steps = min(
-                        TEMPORAL_LAST_SEEN_CLIP,
-                        max(0.0, float(self.step_no - prev_track.get("last_seen_step", -1000))),
-                    )
-                    recently_visible_flag = float(
-                        prev_track.get("has_pos", False)
-                        and last_seen_steps <= TEMPORAL_RECENT_VISIBLE_STEPS
-                    )
-                    track_x = int(prev_track["x"]) if prev_track.get("has_pos", False) else 0
-                    track_z = int(prev_track["z"]) if prev_track.get("has_pos", False) else 0
-                    has_track_pos = bool(prev_track.get("has_pos", False))
-
-                track_priority = dist_norm if (is_in_view or recently_visible_flag > 0.5) else None
-                if track_priority is not None and (
-                    planner_monster_priority is None or track_priority < planner_monster_priority
-                ):
-                    planner_monster_priority = float(track_priority)
-                    planner_monster_dist_delta = float(monster_dist_delta)
-                    planner_monster_last_seen_steps = _norm(last_seen_steps, TEMPORAL_LAST_SEEN_CLIP)
-                    planner_monster_recently_visible_flag = float(recently_visible_flag)
-
-                monster_temporal_feats.append(
-                    np.array(
-                        [
-                            is_in_view,
-                            _norm(monster_pos["x"], MAP_SIZE) if is_in_view else 0.0,
-                            _norm(monster_pos["z"], MAP_SIZE) if is_in_view else 0.0,
-                            speed_norm,
-                            dist_norm,
-                            _dir_norm(monster.get("hero_relative_direction", 0)),
-                            dist_bucket_norm,
-                            monster_dx_norm,
-                            monster_dz_norm,
-                            monster_dist_delta,
-                            monster_dir_delta,
-                            monster_speed_delta,
-                            _norm(last_seen_steps, TEMPORAL_LAST_SEEN_CLIP),
-                            recently_visible_flag,
-                        ],
-                        dtype=np.float32,
-                    )
-                )
-                effective_monster_tracks.append(
-                    {
-                        "has_pos": has_track_pos,
-                        "x": track_x,
-                        "z": track_z,
-                        "dist_norm": dist_norm if is_in_view or prev_dist_norm is None else float(prev_dist_norm),
-                        "dir_raw": int(monster.get("hero_relative_direction", 0)),
-                        "speed_norm": speed_norm,
-                        "last_seen_step": int(self.step_no) if is_in_view else int(prev_track.get("last_seen_step", -1000)),
-                        "last_risk": bool(
-                            (dist_norm if is_in_view else (float(prev_dist_norm) if prev_dist_norm is not None else 1.0))
-                            < LOOP_SURVIVAL_TRIGGER_DIST_NORM
-                        ),
-                        "recently_visible": bool(recently_visible_flag),
-                        "is_in_view": bool(is_in_view),
-                    }
                 )
             else:
                 monster_feats.append(np.zeros(7, dtype=np.float32))
-                last_seen_steps = min(
-                    TEMPORAL_LAST_SEEN_CLIP,
-                    max(0.0, float(self.step_no - prev_track.get("last_seen_step", -1000))),
-                )
-                recently_visible_flag = float(
-                    prev_track.get("has_pos", False)
-                    and last_seen_steps <= TEMPORAL_RECENT_VISIBLE_STEPS
-                )
-                monster_temporal_feats.append(
-                    np.array(
-                        [
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            1.0,
-                            0.0,
-                            1.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            0.0,
-                            _norm(last_seen_steps, TEMPORAL_LAST_SEEN_CLIP),
-                            recently_visible_flag,
-                        ],
-                        dtype=np.float32,
-                    )
-                )
-                effective_monster_tracks.append(
-                    {
-                        "has_pos": bool(prev_track.get("has_pos", False)),
-                        "x": int(prev_track["x"]) if prev_track.get("has_pos", False) else 0,
-                        "z": int(prev_track["z"]) if prev_track.get("has_pos", False) else 0,
-                        "dist_norm": float(prev_track["dist_norm"]) if prev_track.get("dist_norm") is not None else 1.0,
-                        "dir_raw": int(prev_track.get("dir_raw", 0)),
-                        "speed_norm": float(prev_track["speed_norm"]) if prev_track.get("speed_norm") is not None else 0.0,
-                        "last_seen_step": int(prev_track.get("last_seen_step", -1000)),
-                        "last_risk": bool(prev_track.get("last_risk", False)),
-                        "recently_visible": bool(recently_visible_flag),
-                        "is_in_view": False,
-                    }
-                )
-                track_priority = (
-                    float(prev_track["dist_norm"])
-                    if prev_track.get("has_pos", False) and recently_visible_flag > 0.5
-                    else None
-                )
-                if track_priority is not None and (
-                    planner_monster_priority is None or track_priority < planner_monster_priority
-                ):
-                    planner_monster_priority = float(track_priority)
-                    planner_monster_dist_delta = 0.0
-                    planner_monster_last_seen_steps = _norm(last_seen_steps, TEMPORAL_LAST_SEEN_CLIP)
-                    planner_monster_recently_visible_flag = float(recently_visible_flag)
 
         nearest_treasure = [0.0, 0.0, 1.0]
         nearest_buff = [0.0, 0.0, 1.0]
@@ -2003,79 +1457,6 @@ class Preprocessor:
             int(hero_pos["z"]),
             monster_positions,
             cur_min_dist_norm,
-        )
-
-        tracked_vectors = []
-        tracked_dist_norms = []
-        occluded_monster_pressure_flag = 0.0
-        for track in effective_monster_tracks:
-            if track.get("has_pos", False) and (track.get("is_in_view", False) or track.get("recently_visible", False)):
-                tracked_vectors.append(
-                    (
-                        int(track["x"]) - int(hero_pos["x"]),
-                        int(track["z"]) - int(hero_pos["z"]),
-                    )
-                )
-                tracked_dist_norms.append(float(track.get("dist_norm", 1.0)))
-            if (
-                not track.get("is_in_view", False)
-                and track.get("recently_visible", False)
-                and (float(track.get("dist_norm", 1.0)) < LOOP_SURVIVAL_TRIGGER_DIST_NORM or track.get("last_risk", False))
-            ):
-                occluded_monster_pressure_flag = 1.0
-
-        encirclement_angle = (
-            _angle_norm_from_vectors(tracked_vectors[0], tracked_vectors[1])
-            if len(tracked_vectors) >= 2
-            else 0.0
-        )
-        encirclement_angle_delta = _signed_norm(
-            encirclement_angle - float(self.prev_encirclement_angle),
-            1.0,
-        )
-        min_margin_delta = _signed_norm(
-            current_margin_cells - self.last_min_margin_cells,
-            TEMPORAL_MARGIN_DELTA_MAX,
-        )
-        dual_side_pressure_flag = float(
-            len(tracked_vectors) >= 2
-            and encirclement_angle >= 0.35
-            and min(tracked_dist_norms) < 0.15
-        )
-        pair_trend_feat = np.array(
-            [
-                _norm(visible_monster_count, 2.0),
-                float(encirclement_angle),
-                float(encirclement_angle_delta),
-                float(min_margin_delta),
-                float(dual_side_pressure_flag),
-            ],
-            dtype=np.float32,
-        )
-
-        near_threat_persist_steps = (
-            min(self.near_threat_persist_steps + 1, int(TEMPORAL_PERSIST_CLIP))
-            if (current_near_threat or current_danger)
-            else 0
-        )
-        local_space_delta = _signed_norm(
-            current_local_space_score - self.last_local_space_score,
-            1.0,
-        )
-        local_branch_delta = _signed_norm(
-            current_local_branch_factor - self.last_local_branch_factor,
-            TEMPORAL_BRANCH_DELTA_MAX,
-        )
-        margin_delta = _signed_norm(
-            current_margin_cells - self.last_min_margin_cells,
-            TEMPORAL_MARGIN_DELTA_MAX,
-        )
-        danger_rising_flag = float(
-            (current_true_threat and not self.last_true_threat_state)
-            or (current_near_threat and not self.last_near_threat_state)
-            or (current_danger and not self.last_danger_state)
-            or (current_margin_cells < self.last_min_margin_cells - 0.1)
-            or (cur_min_dist_norm < self.last_min_monster_dist_norm - 1e-3)
         )
 
         move_action_infos = {}
@@ -2185,6 +1566,17 @@ class Preprocessor:
             and best_move_info["landing_min_monster_dist_norm"] >= PLANNER_SAFE_MARGIN_NORM
             and best_move_info["landing_space_score"] >= current_local_space_score - 0.05
         )
+        pressure_treasure_window_hint = bool(
+            not current_true_threat
+            and cur_min_dist_norm >= CRITICAL_MONSTER_DIST_NORM
+            and nearest_treasure_dist_norm <= PRESSURE_TREASURE_WINDOW_DIST_NORM
+            and current_local_space_score >= PRESSURE_TREASURE_MIN_SPACE_SCORE
+            and (
+                best_move_leaves_danger
+                or best_move_safe
+                or current_local_branch_factor >= LOCAL_ESCAPE_MAX_BRANCH_FACTOR
+            )
+        )
         flash_eval_trigger = bool(
             flash_cd <= 0
             and valid_flash_action_count > 0
@@ -2227,31 +1619,57 @@ class Preprocessor:
                 self.no_flash_move_better_count += 1
 
         legal_flash_action_count = int(valid_flash_action_count)
-        narrow_topology_flag = bool(
+        structural_narrow_topology_flag = bool(
             current_local_branch_factor <= LOCAL_ESCAPE_MAX_BRANCH_FACTOR
-            or blocked_flash_count >= 2
+        )
+        flash_constrained_flag = bool(
+            blocked_flash_count >= 2
             or legal_flash_action_count <= 3
         )
-        dead_end_under_pressure = bool(
-            narrow_topology_flag
-            and current_danger
-        )
-        flash_escape_urgent = bool(
-            current_true_threat
-            or cur_min_dist_norm < FLASH_ESCAPE_TRIGGER_DIST_NORM
-            or not best_move_leaves_danger
-            or current_local_branch_factor <= LOCAL_ESCAPE_MAX_BRANCH_FACTOR
-            or legal_flash_action_count <= 2
-            or blocked_flash_count >= 4
-        )
-        flash_escape_possible = bool(
-            dead_end_under_pressure
-            and flash_escape_urgent
-            and planner_flash_override
-            and best_flash_action is not None
-            and best_flash_info is not None
-        )
+        narrow_topology_flag = structural_narrow_topology_flag
         last_move_action = int(last_action % 8) if last_action >= 0 else None
+        current_pos_tuple = (int(hero_pos["x"]), int(hero_pos["z"]))
+        current_is_frontier = self._is_frontier(hero_pos_key)
+        route_history_ready = len(self.route_history) >= LOCAL_REACTION_MIN_HISTORY
+        same_cell_stall = _detect_same_cell_stall(
+            self.position_history,
+            current_pos_tuple,
+            stall_steps=2,
+        )
+        two_cell_oscillation = _detect_two_cell_oscillation(
+            self.position_history,
+            current_pos_tuple,
+        )
+        tactical_reaction_ready = bool(
+            route_history_ready
+            or int(self.step_no) >= EARLY_TACTICAL_GRACE_STEPS
+            or same_cell_stall
+            or two_cell_oscillation
+            or cur_min_dist_norm < CRITICAL_MONSTER_DIST_NORM
+        )
+        early_flash_guard = bool(
+            not tactical_reaction_ready
+            and cur_min_dist_norm >= CRITICAL_MONSTER_DIST_NORM
+        )
+        if early_flash_guard:
+            for action_idx in range(8):
+                legal_action[8 + action_idx] = 0
+            legal_flash_action_count = 0
+            flash_constrained_flag = True
+        dead_end_under_pressure = bool(
+            structural_narrow_topology_flag
+            and current_danger
+            and cur_min_dist_norm < LOOP_SURVIVAL_TRIGGER_DIST_NORM
+            and tactical_reaction_ready
+            and (
+                current_local_branch_factor <= LOCAL_DEAD_END_MAX_BRANCH_FACTOR
+                or (
+                    flash_constrained_flag
+                    and not best_move_leaves_danger
+                    and cur_min_dist_norm < FLASH_ESCAPE_TRIGGER_DIST_NORM
+                )
+            )
+        )
         (
             local_escape_flag,
             local_escape_dir_norm,
@@ -2265,349 +1683,195 @@ class Preprocessor:
             cur_min_dist_norm,
             last_move_action=last_move_action,
         )
-        local_escape_meta = dict(getattr(_get_local_escape_target, "last_meta", {}) or {})
-        corridor_escape_mode = bool(local_escape_meta.get("corridor_escape_mode", False))
-        local_escape_is_reverse = bool(local_escape_meta.get("local_escape_is_reverse", False))
-        local_escape_search_depth = int(
-            local_escape_meta.get("search_depth", LOCAL_ESCAPE_SEARCH_DEPTH)
+        (
+            backtrack_flag,
+            backtrack_dir_norm,
+            backtrack_dist_norm,
+            backtrack_action,
+            backtrack_quality,
+            backtrack_route_steps,
+            backtrack_exit_pos,
+            backtrack_info,
+        ) = _get_backtrack_exit_target(
+            self.route_history,
+            hero_pos,
+            map_info,
+            monster_positions,
+            cur_min_dist_norm,
+            current_local_branch_factor,
         )
-        local_escape_target_branch_factor = int(
-            local_escape_meta.get("target_branch_factor", 0)
+        backtrack_available = bool(
+            backtrack_action is not None
+            and backtrack_flag > 0.5
+            and legal_action[int(backtrack_action)] > 0
         )
-        local_escape_target_abs_pos = local_escape_meta.get("target_abs_pos")
-        if (
-            isinstance(local_escape_target_abs_pos, (list, tuple))
-            and len(local_escape_target_abs_pos) >= 2
-        ):
-            local_escape_target_abs_pos = (
-                int(local_escape_target_abs_pos[0]),
-                int(local_escape_target_abs_pos[1]),
-            )
-        else:
-            local_escape_target_abs_pos = None
-        planned_local_escape_target_abs_pos = local_escape_target_abs_pos
-        local_escape_target_path_steps = int(local_escape_meta.get("target_path_steps", 0))
-        planned_local_escape_target_path_steps = int(local_escape_target_path_steps)
-        local_escape_target_space_score = float(
-            local_escape_meta.get("target_space_score", 0.0)
-        )
-        local_escape_target_monster_gain = float(
-            local_escape_meta.get("target_monster_gain", 0.0)
-        )
-        local_escape_target_reachable = bool(
-            local_escape_meta.get("target_reachable", False)
-        )
-        current_pos_tuple = (int(hero_pos["x"]), int(hero_pos["z"]))
-        dead_end_exit_success = False
-        dead_end_deeper_action_blocked = False
-        dead_end_reentry_action_blocked = False
-        persistent_dead_end_just_activated = False
-        persistent_followed_this_step = bool(
-            0 <= last_action < 8
-            and self.prev_persistent_dead_end_available
-            and self.prev_persistent_dead_end_action is not None
-            and (last_action % 8) == self.prev_persistent_dead_end_action
-        )
-        if persistent_followed_this_step:
-            self.persistent_dead_end_followed_once = True
-        dead_end_pressure_for_pretrigger = bool(
-            current_danger
-            or danger_rising_flag > 0
-            or near_threat_persist_steps >= DEAD_END_PRETRIGGER_PERSIST_STEPS
-            or cur_min_dist_norm < DEAD_END_PRETRIGGER_DIST_NORM
-        )
-        dead_end_pretrigger = bool(
-            current_local_branch_factor <= LOCAL_DEAD_END_MAX_BRANCH_FACTOR
-            and local_escape_action is not None
-            and planned_local_escape_target_abs_pos is not None
-            and dead_end_pressure_for_pretrigger
-        )
-        confirmed_dead_end = bool(
-            current_local_branch_factor <= LOCAL_DEAD_END_MAX_BRANCH_FACTOR
-            and local_escape_action is not None
-            and planned_local_escape_target_abs_pos is not None
-            and local_escape_target_reachable
-            and local_escape_target_branch_factor >= CORRIDOR_EXIT_BRANCH_FACTOR
-        )
-        local_escape_meta["used_persistent_target"] = False
-        dead_end_local_mode = bool(
-            (confirmed_dead_end or self.persistent_dead_end_target_active)
-            and not flash_escape_possible
-            and local_escape_action is not None
-        )
-
-        def _can_seed_persistent_dead_end_target():
-            return bool(
-                confirmed_dead_end
-                and local_escape_action is not None
-                and planned_local_escape_target_abs_pos is not None
-            )
-
-        def _activate_current_escape_target(replan_count):
-            return self._activate_persistent_dead_end_target(
-                planned_local_escape_target_abs_pos,
-                local_escape_target_branch_factor,
-                planned_local_escape_target_path_steps,
-                replan_count=replan_count,
-            )
-
-        def _persistent_exit_ready(target_dist):
-            terminal_dist = _chebyshev_dist_cells(current_pos_tuple, self.dead_end_terminal_pos)
-            has_retreat_progress = bool(
-                self.persistent_dead_end_active_steps >= 2
-                or self.persistent_dead_end_followed_once
-                or (terminal_dist is not None and terminal_dist >= 2)
-            )
-            if not has_retreat_progress:
-                return False
-            return bool(
-                current_local_branch_factor >= DEAD_END_TARGET_MIN_BRANCH_FACTOR
-                or (
-                    target_dist is not None
-                    and target_dist <= DEAD_END_TARGET_REACH_DIST_CELLS
-                )
-            )
-
-        if (
-            self.persistent_dead_end_target_active
-            and self.persistent_dead_end_target_pos is not None
-        ):
-            current_target_dist = _chebyshev_dist_cells(
-                current_pos_tuple,
-                self.persistent_dead_end_target_pos,
-            )
-            if _persistent_exit_ready(current_target_dist):
-                dead_end_exit_success = True
-                self.dead_end_exit_success_count += 1
-                if self.persistent_dead_end_followed_once:
-                    self.persistent_dead_end_success_after_follow_count += 1
-                self._start_dead_end_reentry_block(current_pos_tuple)
-                self._clear_persistent_dead_end_target(clear_tracking=True)
-            elif not _in_map_bounds(
-                self.persistent_dead_end_target_pos[0],
-                self.persistent_dead_end_target_pos[1],
-            ):
-                self._clear_persistent_dead_end_target(clear_tracking=True)
-        elif self.persistent_dead_end_target_active:
-            self._clear_persistent_dead_end_target(clear_tracking=True)
-
-        if (
-            not dead_end_exit_success
-            and not self.persistent_dead_end_target_active
-            and _can_seed_persistent_dead_end_target()
-        ):
-            self.dead_end_terminal_pos = current_pos_tuple
-            self.dead_end_reentry_block_steps = 0
-            persistent_dead_end_just_activated = bool(
-                _activate_current_escape_target(replan_count=0)
-            )
-
-        persistent_target_action = None
-        persistent_target_reachable = False
-        persistent_target_dist = None
-        for _ in range(2):
-            if (
-                not self.persistent_dead_end_target_active
-                or self.persistent_dead_end_target_pos is None
-            ):
-                break
-
-            persistent_target_dist = _chebyshev_dist_cells(
-                current_pos_tuple,
-                self.persistent_dead_end_target_pos,
-            )
-            if (
-                not persistent_dead_end_just_activated
-                and _persistent_exit_ready(persistent_target_dist)
-            ):
-                dead_end_exit_success = True
-                self.dead_end_exit_success_count += 1
-                if self.persistent_dead_end_followed_once:
-                    self.persistent_dead_end_success_after_follow_count += 1
-                self._start_dead_end_reentry_block(current_pos_tuple)
-                self._clear_persistent_dead_end_target(clear_tracking=True)
-                break
-
-            self.persistent_dead_end_active_steps += 1
-            if self.dead_end_exit_tracking_active:
-                self.dead_end_exit_remaining_steps = max(
-                    0,
-                    int(self.dead_end_exit_remaining_steps) - 1,
-                )
-
-            persistent_target_action = _get_first_action_towards_abs_target(
-                map_info,
-                hero_pos,
-                self.persistent_dead_end_target_pos,
-                preferred_action=local_escape_action,
-            )
-            persistent_target_reachable = bool(
-                getattr(_get_first_action_towards_abs_target, "last_reachable", False)
-            )
-            persistent_target_path_steps = int(
-                getattr(_get_first_action_towards_abs_target, "last_path_steps", 0)
-            )
-            persistent_commit_progress = bool(
-                self.persistent_dead_end_last_dist is None
-                or (
-                    persistent_target_dist is not None
-                    and self.persistent_dead_end_last_dist is not None
-                    and persistent_target_dist < self.persistent_dead_end_last_dist
-                )
-            )
-
-            persistent_target_failed = False
-            if persistent_target_action is not None:
-                local_escape_action = int(persistent_target_action)
-                local_escape_flag = 1.0
-                local_escape_dir_norm = _action_to_dir_norm(local_escape_action)
-                local_escape_dist_norm = _norm(persistent_target_path_steps, MAP_SIZE * 1.41)
-                local_escape_quality = float(np.clip(max(local_escape_quality, 0.45), 0.0, 1.0))
-                local_escape_meta["used_persistent_target"] = True
-                local_escape_meta["target_abs_pos"] = self.persistent_dead_end_target_pos
-                local_escape_meta["target_path_steps"] = int(persistent_target_path_steps)
-                local_escape_meta["target_reachable"] = True
-                local_escape_meta["target_branch_factor"] = int(
-                    self.persistent_dead_end_target_branch_factor
-                )
-                local_escape_target_abs_pos = self.persistent_dead_end_target_pos
-                local_escape_target_path_steps = int(persistent_target_path_steps)
-                local_escape_target_reachable = True
-                self.persistent_dead_end_target_steps = int(persistent_target_path_steps)
-                if persistent_commit_progress:
-                    self.persistent_dead_end_stall_steps = 0
-                    self.persistent_dead_end_commit_remaining = min(
-                        int(DEAD_END_COMMIT_MAX_HOLD_STEPS),
-                        max(
-                            int(self.persistent_dead_end_commit_remaining),
-                            int(DEAD_END_COMMIT_HOLD_STEPS),
-                        ),
-                    )
-                else:
-                    self.persistent_dead_end_stall_steps += 1
-                    self.persistent_dead_end_commit_remaining = max(
-                        0,
-                        int(self.persistent_dead_end_commit_remaining) - 1,
-                    )
-                self.persistent_dead_end_last_dist = persistent_target_dist
-            else:
-                self.persistent_dead_end_stall_steps += 1
-                self.persistent_dead_end_target_steps = 0
-                self.persistent_dead_end_commit_remaining = max(
-                    0,
-                    int(self.persistent_dead_end_commit_remaining) - 1,
-                )
-                persistent_target_failed = bool(
-                    self.persistent_dead_end_stall_steps
-                    >= DEAD_END_TARGET_REPLAN_STALL_STEPS
-                )
-
-            if self.dead_end_exit_tracking_active and self.dead_end_exit_remaining_steps <= 0:
-                persistent_target_failed = True
-            if (
-                self.persistent_dead_end_commit_remaining <= 0
-                and (
-                    persistent_target_action is None
-                    or self.persistent_dead_end_stall_steps
-                    >= DEAD_END_TARGET_REPLAN_STALL_STEPS
-                    or _detect_same_cell_stall(
-                        self.position_history,
-                        current_pos_tuple,
-                        stall_steps=2,
-                    )
-                    or _detect_two_cell_oscillation(
-                        self.position_history,
-                        current_pos_tuple,
-                    )
-                )
-            ):
-                persistent_target_failed = True
-            if (
-                self.persistent_dead_end_active_steps >= DEAD_END_COMMIT_MAX_HOLD_STEPS
-                and (
-                    self.persistent_dead_end_stall_steps
-                    >= DEAD_END_TARGET_REPLAN_STALL_STEPS
-                    or _detect_same_cell_stall(
-                        self.position_history,
-                        current_pos_tuple,
-                        stall_steps=2,
-                    )
-                    or _detect_two_cell_oscillation(
-                        self.position_history,
-                        current_pos_tuple,
-                    )
-                )
-            ):
-                persistent_target_failed = True
-
-            if not persistent_target_failed:
-                break
-
-            next_replan_count = int(self.persistent_dead_end_replan_count) + 1
-            if next_replan_count <= 1 and _can_seed_persistent_dead_end_target():
-                self.dead_end_terminal_pos = current_pos_tuple
-                if _activate_current_escape_target(replan_count=next_replan_count):
-                    persistent_target_action = None
-                    persistent_target_reachable = False
-                    persistent_target_dist = None
-                    continue
-
-            self._clear_persistent_dead_end_target(clear_tracking=True)
-            persistent_target_action = None
-            persistent_target_reachable = False
-            persistent_target_dist = None
-            break
-
-        dead_end_local_mode = bool(
-            (confirmed_dead_end or self.persistent_dead_end_target_active)
-            and not flash_escape_possible
-            and local_escape_action is not None
-        )
-        base_local_commit_mode = bool(
-            confirmed_dead_end
-            and not self.persistent_dead_end_target_active
-            and local_escape_action is not None
-            and local_escape_quality >= LOCAL_COMMIT_MIN_QUALITY
-        )
-        if self.persistent_dead_end_target_active or not base_local_commit_mode:
-            self.nonpersistent_dead_end_commit_remaining = 0
-            self.nonpersistent_dead_end_commit_armed = False
-        elif not self.nonpersistent_dead_end_commit_armed:
-            self.nonpersistent_dead_end_commit_remaining = 2
-            self.nonpersistent_dead_end_commit_armed = True
-        elif self.nonpersistent_dead_end_commit_remaining > 0:
-            self.nonpersistent_dead_end_commit_remaining = max(
-                0,
-                int(self.nonpersistent_dead_end_commit_remaining) - 1,
-            )
-        short_local_commit_mode = bool(
-            base_local_commit_mode
-            and not self.persistent_dead_end_target_active
-            and self.nonpersistent_dead_end_commit_remaining > 0
-        )
-        persistent_commit_mode = bool(
-            self.persistent_dead_end_target_active
-            and local_escape_action is not None
-            and self.persistent_dead_end_commit_remaining > 0
+        backtrack_blocked = bool(
+            backtrack_available
             and (
-                persistent_target_action is not None
-                or persistent_dead_end_just_activated
+                backtrack_info["monster_dist_norm"] < DEAD_END_BACKTRACK_MIN_DIST_NORM
+                or backtrack_info["monster_gain"] < -DEAD_END_BACKTRACK_GAIN_TOLERANCE
             )
+        )
+        backtrack_exit_ready = bool(
+            backtrack_available
+            and (
+                backtrack_route_steps >= BACKTRACK_EXIT_MIN_ROUTE_STEPS
+                or (
+                    backtrack_info["branch_factor"] > current_local_branch_factor
+                    and backtrack_info["monster_gain"] >= -DEAD_END_BACKTRACK_GAIN_TOLERANCE
+                )
+            )
+        )
+        backtrack_retry_mode = bool(
+            dead_end_under_pressure
+            and backtrack_exit_ready
+            and backtrack_blocked
+            and route_history_ready
+            and cur_min_dist_norm >= BACKTRACK_RETRY_SAFE_DIST_NORM
+            and not same_cell_stall
+            and not two_cell_oscillation
+        )
+        backtrack_escape_context = bool(
+            backtrack_exit_ready
+            and backtrack_blocked
+            and not backtrack_retry_mode
+        )
+        flash_escape_urgent = bool(
+            best_flash_action is not None
+            and best_flash_info is not None
+            and flash_cd <= 0
+            and base_legal_action[8 + best_flash_action] > 0
+            and current_danger
+            and (
+                current_true_threat
+                or cur_min_dist_norm < CRITICAL_MONSTER_DIST_NORM
+                or (
+                    backtrack_escape_context
+                    and not best_move_leaves_danger
+                )
+                or (
+                    dead_end_under_pressure
+                    and (
+                        not best_move_leaves_danger
+                        and current_local_branch_factor <= LOCAL_DEAD_END_MAX_BRANCH_FACTOR
+                        and cur_min_dist_norm < FLASH_ESCAPE_TRIGGER_DIST_NORM
+                    )
+                )
+            )
+        )
+        flash_escape_possible = bool(
+            (dead_end_under_pressure or backtrack_escape_context or cur_min_dist_norm < CRITICAL_MONSTER_DIST_NORM)
+            and flash_escape_urgent
+            and planner_flash_override
+            and best_flash_action is not None
+            and best_flash_info is not None
+            and not (
+                pressure_treasure_window_hint
+                and best_move_leaves_danger
+                and best_move_safe
+            )
+        )
+        dead_end_backtrack_mode = bool(
+            dead_end_under_pressure
+            and not flash_escape_possible
+            and backtrack_exit_ready
+            and (not backtrack_blocked or backtrack_retry_mode)
+        )
+        local_escape_fallback = bool(
+            backtrack_escape_context
+            or (
+                current_local_branch_factor <= LOCAL_DEAD_END_MAX_BRANCH_FACTOR
+                and route_history_ready
+                and (same_cell_stall or two_cell_oscillation)
+            )
+        )
+        dead_end_local_mode = bool(
+            dead_end_under_pressure
+            and not flash_escape_possible
+            and not dead_end_backtrack_mode
+            and local_escape_action is not None
+            and local_escape_fallback
+            and not pressure_treasure_window_hint
         )
         local_commit_mode = bool(
-            persistent_commit_mode or short_local_commit_mode
+            dead_end_local_mode
+            and local_escape_action is not None
+            and local_escape_quality >= LOCAL_COMMIT_MIN_QUALITY
+            and not current_is_frontier
+            and current_local_branch_factor <= LOCAL_ESCAPE_MAX_BRANCH_FACTOR
+            and (
+                backtrack_escape_context
+                or (
+                    current_local_branch_factor <= LOCAL_DEAD_END_MAX_BRANCH_FACTOR
+                    and same_cell_stall
+                )
+            )
+            and (
+                cur_min_dist_norm < LOCAL_COMMIT_TRIGGER_DIST_NORM
+                or same_cell_stall
+                or two_cell_oscillation
+            )
+            and not pressure_treasure_window_hint
         )
+        if local_commit_mode:
+            allowed_move_actions = {int(local_escape_action), *_adjacent_actions(local_escape_action)}
+            for action_idx in range(8):
+                legal_action[action_idx] = 1 if (action_idx in allowed_move_actions and legal_action[action_idx]) else 0
+                legal_action[8 + action_idx] = 0
 
         flash_commit_mode = bool(
-            planner_flash_override
+            flash_escape_possible
             and best_flash_action is not None
+            and cur_min_dist_norm < SAFE_RESOURCE_DIST_NORM
+            and same_cell_stall
         )
-        if flash_commit_mode:
-            self.flash_execute_count += 1
         if flash_commit_mode:
             for action_idx in range(8):
                 legal_action[action_idx] = 0
                 legal_action[8 + action_idx] = 1 if action_idx == best_flash_action else 0
+        elif (
+            flash_escape_possible
+            and best_flash_action is not None
+            and best_flash_info is not None
+            and not best_flash_info["invalid"]
+            and (
+                planner_flash_override
+                or current_true_threat
+                or not best_move_leaves_danger
+                or same_cell_stall
+                or two_cell_oscillation
+            )
+        ):
+            soft_flash_candidates = []
+            for action_idx in range(8):
+                flash_info = flash_action_infos[action_idx]
+                if base_legal_action[8 + action_idx] <= 0:
+                    continue
+                if flash_info["invalid"] or flash_info["soft_block"]:
+                    continue
+                if (
+                    flash_info["score"] < best_flash_info["score"] - SOFT_FLASH_KEEP_SCORE_TOLERANCE
+                    and not flash_info["leave_danger"]
+                ):
+                    continue
+                soft_flash_candidates.append(
+                    (
+                        int(flash_info["leave_danger"]),
+                        int(flash_info["leave_threat"]),
+                        flash_info["score"],
+                        flash_info["distance_gain"],
+                        flash_info["openness_gain"],
+                        action_idx,
+                    )
+                )
+            soft_flash_candidates.sort(reverse=True)
+            allowed_flash_actions = {int(best_flash_action)}
+            for candidate in soft_flash_candidates[:SOFT_FLASH_KEEP_TOPK]:
+                allowed_flash_actions.add(int(candidate[-1]))
+            for action_idx in range(8):
+                legal_action[8 + action_idx] = (
+                    1 if action_idx in allowed_flash_actions else 0
+                )
         else:
             # Leave the hard safety gate unchanged in V1. If soft flash
             # candidates are enabled later, this is the place to keep top-K
@@ -2615,160 +1879,6 @@ class Preprocessor:
             # flash branch.
             for action_idx in range(8):
                 legal_action[8 + action_idx] = 0
-        dead_end_commit_target_pos = (
-            self.persistent_dead_end_target_pos
-            if self.persistent_dead_end_target_active
-            else local_escape_target_abs_pos
-        )
-        dead_end_hard_commit_mode = bool(
-            not flash_commit_mode
-            and local_commit_mode
-            and local_escape_action is not None
-        )
-        if dead_end_hard_commit_mode:
-            allowed_move_actions = set()
-            commit_target_dist = _chebyshev_dist_cells(
-                current_pos_tuple,
-                dead_end_commit_target_pos,
-            )
-            primary_action = int(local_escape_action)
-            primary_valid = bool(base_legal_action[primary_action] > 0)
-            if primary_valid and dead_end_commit_target_pos is not None:
-                primary_target_dist = _target_distance_after_move(
-                    map_info,
-                    hero_pos,
-                    primary_action,
-                    dead_end_commit_target_pos,
-                )
-                primary_valid = primary_target_dist is not None and (
-                    commit_target_dist is None or primary_target_dist <= commit_target_dist
-                )
-            if primary_valid:
-                allowed_move_actions.add(primary_action)
-            else:
-                backup_action = None
-                backup_key = None
-                for action_idx in range(8):
-                    if base_legal_action[action_idx] <= 0:
-                        continue
-                    next_target_dist = _target_distance_after_move(
-                        map_info,
-                        hero_pos,
-                        action_idx,
-                        dead_end_commit_target_pos,
-                    )
-                    if next_target_dist is None:
-                        continue
-                    if (
-                        commit_target_dist is not None
-                        and next_target_dist > commit_target_dist
-                    ):
-                        continue
-                    move_score = float(
-                        move_action_infos.get(action_idx, {}).get("score", -1e9)
-                    )
-                    candidate_key = (
-                        next_target_dist,
-                        -move_score,
-                        0 if action_idx == primary_action else 1,
-                        action_idx,
-                    )
-                    if backup_key is None or candidate_key < backup_key:
-                        backup_key = candidate_key
-                        backup_action = action_idx
-                if backup_action is not None:
-                    local_escape_action = int(backup_action)
-                    local_escape_dir_norm = _action_to_dir_norm(local_escape_action)
-                    allowed_move_actions.add(local_escape_action)
-            if not allowed_move_actions:
-                fallback_action = None
-                fallback_key = None
-                for action_idx in range(8):
-                    if base_legal_action[action_idx] <= 0:
-                        continue
-                    move_info = move_action_infos.get(action_idx, {})
-                    candidate_key = (
-                        0 if bool(move_info.get("invalid", False)) else 1,
-                        float(move_info.get("score", -1e9)),
-                        1 if best_move_action is not None and action_idx == int(best_move_action) else 0,
-                        1 if action_idx == primary_action else 0,
-                    )
-                    if fallback_key is None or candidate_key > fallback_key:
-                        fallback_key = candidate_key
-                        fallback_action = action_idx
-                if fallback_action is not None:
-                    local_escape_action = int(fallback_action)
-                    local_escape_dir_norm = _action_to_dir_norm(local_escape_action)
-                    local_escape_meta["used_persistent_target"] = False
-                    allowed_move_actions.add(local_escape_action)
-            for action_idx in range(8):
-                legal_action[action_idx] = (
-                    1 if action_idx in allowed_move_actions and base_legal_action[action_idx] > 0 else 0
-                )
-
-        reentry_block_active = bool(
-            self.dead_end_reentry_block_steps > 0
-            and self.dead_end_terminal_pos is not None
-            and not self.persistent_dead_end_target_active
-            and not flash_commit_mode
-        )
-        if reentry_block_active:
-            reentry_legal_before_block = list(legal_action[:8])
-            current_terminal_dist = _chebyshev_dist_cells(
-                current_pos_tuple,
-                self.dead_end_terminal_pos,
-            )
-            blocked_reentry_actions = set()
-            for action_idx in range(8):
-                if base_legal_action[action_idx] <= 0 or legal_action[action_idx] <= 0:
-                    continue
-                next_terminal_dist = _target_distance_after_move(
-                    map_info,
-                    hero_pos,
-                    action_idx,
-                    self.dead_end_terminal_pos,
-                )
-                if (
-                    next_terminal_dist is not None
-                    and current_terminal_dist is not None
-                    and next_terminal_dist < current_terminal_dist
-                ):
-                    blocked_reentry_actions.add(action_idx)
-                    legal_action[action_idx] = 0
-            if not any(legal_action[:8]):
-                for action_idx in range(8):
-                    legal_action[action_idx] = reentry_legal_before_block[action_idx]
-                blocked_reentry_actions.clear()
-            dead_end_reentry_action_blocked = bool(blocked_reentry_actions)
-            dead_end_deeper_action_blocked = dead_end_reentry_action_blocked
-        if sum(legal_action) == 0:
-            fallback_action = None
-            if (
-                persistent_target_action is not None
-                and base_legal_action[int(persistent_target_action)] > 0
-            ):
-                fallback_action = int(persistent_target_action)
-            elif (
-                local_escape_action is not None
-                and 0 <= int(local_escape_action) < 8
-                and base_legal_action[int(local_escape_action)] > 0
-            ):
-                fallback_action = int(local_escape_action)
-            elif best_move_action is not None and base_legal_action[int(best_move_action)] > 0:
-                fallback_action = int(best_move_action)
-            else:
-                for action_idx in range(16):
-                    if base_legal_action[action_idx] > 0:
-                        fallback_action = action_idx
-                        break
-            if fallback_action is not None:
-                legal_action = [0] * 16
-                legal_action[int(fallback_action)] = 1
-        if self.dead_end_reentry_block_steps > 0 and not self.persistent_dead_end_target_active:
-            self.dead_end_reentry_block_steps = max(
-                0,
-                int(self.dead_end_reentry_block_steps) - 1,
-            )
         legal_flash_action_count = int(sum(legal_action[8:]))
 
         frontier_flag, frontier_dir_norm, frontier_dist_norm, frontier_action, current_is_frontier = (
@@ -2792,20 +1902,21 @@ class Preprocessor:
         guidance_dir_norm = frontier_dir_norm
         guidance_dist_norm = frontier_dist_norm
         guidance_source = "frontier"
-        if flash_commit_mode and best_flash_action is not None:
-            guidance_flag = 1.0
-            guidance_dir_norm = _action_to_dir_norm(best_flash_action)
-            guidance_dist_norm = 1.0 - float(best_flash_info.get("landing_ratio", 0.0))
-            guidance_source = "flash_escape_commit"
+        if dead_end_backtrack_mode and backtrack_action is not None:
+            guidance_flag = backtrack_flag
+            guidance_dir_norm = backtrack_dir_norm
+            guidance_dist_norm = backtrack_dist_norm
+            guidance_source = "dead_end_backtrack"
         elif local_commit_mode and local_escape_action is not None:
             guidance_flag = local_escape_flag
             guidance_dir_norm = local_escape_dir_norm
             guidance_dist_norm = local_escape_dist_norm
-            guidance_source = (
-                "persistent_dead_end_commit"
-                if self.persistent_dead_end_target_active
-                else "dead_end_local_commit"
-            )
+            guidance_source = "dead_end_local_commit"
+        elif flash_commit_mode and best_flash_action is not None:
+            guidance_flag = 1.0
+            guidance_dir_norm = _action_to_dir_norm(best_flash_action)
+            guidance_dist_norm = 1.0 - float(best_flash_info.get("landing_ratio", 0.0))
+            guidance_source = "flash_planner"
         elif flash_escape_possible and best_flash_action is not None:
             guidance_flag = 1.0
             guidance_dir_norm = _action_to_dir_norm(best_flash_action)
@@ -2834,6 +1945,7 @@ class Preprocessor:
                 if (
                     float(flash_info.get("monster_gain", 0.0)) <= 0.0
                     and path_score < FRONTIER_FLASH_PATH_MIN_SCORE
+                    and int(self.step_no) < 80
                 ):
                     legal_action[8 + action_idx] = 0
                     blocked_flash_count += 1
@@ -2843,7 +1955,16 @@ class Preprocessor:
             guidance_source == "frontier"
             and local_escape_action is not None
             and local_escape_quality >= ANTI_OSCILLATION_MIN_LOCAL_QUALITY
-            and _detect_two_cell_oscillation(self.position_history, current_pos_tuple)
+            and two_cell_oscillation
+            and not dead_end_under_pressure
+            and cur_min_dist_norm < LOOP_SURVIVAL_TRIGGER_DIST_NORM
+            and nearest_treasure_dist_norm > ANTI_OSCILLATION_GOAL_NEAR_DIST_NORM
+            and nearest_buff_dist_norm > 0.75 * ANTI_OSCILLATION_GOAL_NEAR_DIST_NORM
+            and hidden_treasure_flag < 0.5
+            and not (
+                memory_treasure_flag > 0.5
+                and memory_treasure_dist_norm <= ANTI_OSCILLATION_GOAL_NEAR_DIST_NORM
+            )
         )
         if anti_oscillation_mode:
             guidance_flag = local_escape_flag
@@ -2853,27 +1974,72 @@ class Preprocessor:
 
         frontier_local_commit_mode = bool(
             guidance_source in {"frontier", "anti_oscillation"}
-            and (confirmed_dead_end or self.persistent_dead_end_target_active)
+            and dead_end_under_pressure
             and not flash_escape_possible
+            and not dead_end_backtrack_mode
             and local_escape_action is not None
             and local_escape_quality >= LOCAL_COMMIT_MIN_QUALITY
-            and cur_min_dist_norm < LOOP_SURVIVAL_TRIGGER_DIST_NORM
+            and not current_is_frontier
+            and current_local_branch_factor <= LOCAL_DEAD_END_MAX_BRANCH_FACTOR
+            and route_history_ready
+            and backtrack_escape_context
+            and cur_min_dist_norm < LOCAL_COMMIT_TRIGGER_DIST_NORM
             and (
-                _detect_same_cell_stall(self.position_history, current_pos_tuple, stall_steps=2)
-                or _detect_two_cell_oscillation(self.position_history, current_pos_tuple)
+                same_cell_stall
+                or two_cell_oscillation
             )
         )
         if frontier_local_commit_mode and not local_commit_mode:
-            local_commit_mode = True
-            allowed_move_actions = {int(local_escape_action), *_adjacent_actions(local_escape_action)}
-            for action_idx in range(8):
-                legal_action[action_idx] = 1 if (action_idx in allowed_move_actions and legal_action[action_idx]) else 0
-                legal_action[8 + action_idx] = 0
-            legal_flash_action_count = 0
             guidance_flag = local_escape_flag
             guidance_dir_norm = local_escape_dir_norm
             guidance_dist_norm = local_escape_dist_norm
-            guidance_source = "dead_end_local_commit"
+            guidance_source = "dead_end_local"
+
+        move_dist_norm = _safe_exact_dist(hero_pos, self.last_hero_pos) if self.last_hero_pos else 0.0
+        prev_flash_info = (
+            self.prev_flash_info_by_action.get(last_action % 8, {})
+            if last_action >= 8
+            else {}
+        )
+        flash_escape_gain = 0.0
+        flash_margin_gain = 0.0
+        flash_openness_gain = 0.0
+        flash_wasted = bool(
+            last_action >= 8
+            and (
+                move_dist_norm < FLASH_WASTED_MOVE_NORM
+                or int(prev_flash_info.get("landing_step", 0)) <= 0
+            )
+        )
+        flash_effective = False
+        flash_danger = False
+
+        post_flash_follow_action = None
+        if last_action >= 8 and not flash_wasted:
+            if dead_end_backtrack_mode and backtrack_action is not None:
+                post_flash_follow_action = int(backtrack_action)
+            elif local_commit_mode and local_escape_action is not None:
+                post_flash_follow_action = int(local_escape_action)
+            elif dead_end_local_mode and local_escape_action is not None:
+                post_flash_follow_action = int(local_escape_action)
+            elif anti_oscillation_mode and local_escape_action is not None:
+                post_flash_follow_action = int(local_escape_action)
+            elif loop_survival_mode and loop_action is not None:
+                post_flash_follow_action = int(loop_action)
+            elif frontier_action is not None:
+                post_flash_follow_action = int(frontier_action)
+            elif last_move_action is not None and legal_action[last_move_action]:
+                post_flash_follow_action = int(last_move_action)
+
+        post_flash_follow_mode = bool(
+            post_flash_follow_action is not None
+            and legal_action[int(post_flash_follow_action)] > 0
+        )
+        if post_flash_follow_mode:
+            guidance_flag = 1.0
+            guidance_dir_norm = _action_to_dir_norm(post_flash_follow_action)
+            guidance_dist_norm = 0.0
+            guidance_source = "post_flash_follow"
 
         progress_feat = np.array(
             [
@@ -2891,21 +2057,6 @@ class Preprocessor:
             dtype=np.float32,
         )
 
-        hero_temporal_feat = np.array(
-            [
-                hero_feat[0],
-                hero_feat[1],
-                hero_feat[2],
-                hero_feat[3],
-                float(hero_dx_norm),
-                float(hero_dz_norm),
-                _norm(current_same_dir_streak, TEMPORAL_STREAK_CLIP),
-                float(recent_flash_flag),
-                float(recent_turn_flag),
-            ],
-            dtype=np.float32,
-        )
-
         risk_summary_feat = np.array(
             [
                 float(current_true_threat),
@@ -2918,17 +2069,9 @@ class Preprocessor:
                 float(flash_escape_urgent),
                 float(flash_eval_trigger),
                 float(planner_flash_override),
-                float(occluded_monster_pressure_flag),
-                float(danger_rising_flag),
-                _norm(near_threat_persist_steps, TEMPORAL_PERSIST_CLIP),
-                float(local_space_delta),
-                float(local_branch_delta),
-                float(margin_delta),
             ],
             dtype=np.float32,
         )
-
-        same_dir_streak_norm = _norm(current_same_dir_streak, TEMPORAL_STREAK_CLIP)
 
         last_action_feat = np.zeros(Config.ACTION_NUM, dtype=np.float32)
         if 0 <= int(last_action) < Config.ACTION_NUM:
@@ -2936,24 +2079,13 @@ class Preprocessor:
 
         temporal_feature = np.concatenate(
             [
-                hero_temporal_feat,
-                monster_temporal_feats[0],
-                monster_temporal_feats[1],
-                pair_trend_feat,
+                hero_feat,
+                monster_feats[0],
+                monster_feats[1],
                 risk_summary_feat,
                 last_action_feat,
             ]
         ).astype(np.float32)
-
-        self._record_temporal_values(
-            hero_dx_norm=float(hero_dx_norm),
-            hero_dz_norm=float(hero_dz_norm),
-            same_dir_streak_norm=float(same_dir_streak_norm),
-            recent_flash_flag=float(recent_flash_flag),
-            monster_temporal_feats=monster_temporal_feats,
-            pair_trend_feat=pair_trend_feat,
-            risk_summary_feat=risk_summary_feat,
-        )
 
         feature = np.concatenate(
             [
@@ -2968,27 +2100,10 @@ class Preprocessor:
             ]
         ).astype(np.float32)
 
-        move_dist_norm = _safe_exact_dist(hero_pos, self.last_hero_pos) if self.last_hero_pos else 0.0
-        flash_escape_gain = 0.0
-        flash_margin_gain = 0.0
-        flash_openness_gain = 0.0
-        flash_wasted = False
-        flash_effective = False
-        flash_danger = False
-        prev_flash_info = (
-            self.prev_flash_info_by_action.get(last_action % 8, {})
-            if last_action >= 8
-            else {}
-        )
-
         if last_action >= 8:
             flash_escape_gain = cur_min_dist_norm - self.last_min_monster_dist_norm
             flash_margin_gain = current_margin_cells - self.last_min_margin_cells
             flash_openness_gain = current_local_space_score - self.last_local_space_score
-            flash_wasted = (
-                move_dist_norm < FLASH_WASTED_MOVE_NORM
-                or int(prev_flash_info.get("landing_step", 0)) <= 0
-            )
             flash_effective = bool(
                 not flash_wasted
                 and (
@@ -3012,32 +2127,6 @@ class Preprocessor:
                 and flash_escape_gain < FLASH_DANGER_GAIN_NORM
             )
 
-        prev_dead_end_target_dist = None
-        current_dead_end_target_dist = None
-        dead_end_deeper_move_this_step = False
-        if self.last_hero_pos is not None and self.prev_dead_end_reference_target_pos is not None:
-            prev_dead_end_target_dist = _chebyshev_dist_cells(
-                (int(self.last_hero_pos["x"]), int(self.last_hero_pos["z"])),
-                self.prev_dead_end_reference_target_pos,
-            )
-            current_dead_end_target_dist = _chebyshev_dist_cells(
-                current_pos_tuple,
-                self.prev_dead_end_reference_target_pos,
-            )
-        if self.last_hero_pos is not None and 0 <= last_action < 8:
-            action_dir = last_action % 8
-            if (
-                self.prev_dead_end_reference_action is not None
-                and action_dir == _opposite_action(self.prev_dead_end_reference_action)
-            ):
-                dead_end_deeper_move_this_step = True
-            if (
-                prev_dead_end_target_dist is not None
-                and current_dead_end_target_dist is not None
-                and current_dead_end_target_dist > prev_dead_end_target_dist
-            ):
-                dead_end_deeper_move_this_step = True
-
         if self.last_hero_pos is not None:
             self.transition_count += 1
             if move_dist_norm < 0.002:
@@ -3050,47 +2139,39 @@ class Preprocessor:
                 self.dead_end_entry_count += 1
             if blocked_flash_count > 0:
                 self.flash_blocked_step_count += 1
-            if flash_escape_possible:
-                self.dead_end_flash_escape_step_count += 1
-            if dead_end_local_mode:
-                self.dead_end_local_mode_step_count += 1
-            if confirmed_dead_end:
-                self.confirmed_dead_end_step_count += 1
-            if self.persistent_dead_end_target_active:
-                self.persistent_dead_end_active_step_count += 1
-            if reentry_block_active:
-                self.dead_end_reentry_active_step_count += 1
+            if dead_end_under_pressure:
+                if flash_escape_possible:
+                    self.dead_end_flash_escape_step_count += 1
+                elif dead_end_backtrack_mode:
+                    self.dead_end_backtrack_step_count += 1
+                elif dead_end_local_mode:
+                    self.dead_end_local_mode_step_count += 1
             if local_commit_mode:
                 self.dead_end_local_commit_step_count += 1
-            if persistent_commit_mode:
-                self.persistent_dead_end_commit_step_count += 1
             if self.prev_dead_end_flash_available and self.prev_dead_end_flash_action is not None:
                 self.dead_end_flash_available_step_count += 1
                 if last_action >= 8 and (last_action % 8) == self.prev_dead_end_flash_action:
                     self.dead_end_flash_follow_step_count += 1
+            if self.prev_dead_end_backtrack_available and self.prev_dead_end_backtrack_action is not None:
+                self.dead_end_backtrack_available_step_count += 1
+                if last_action >= 0 and (last_action % 8) == self.prev_dead_end_backtrack_action:
+                    self.dead_end_backtrack_follow_step_count += 1
             if self.prev_dead_end_local_available and self.prev_dead_end_local_action is not None:
                 self.dead_end_local_available_step_count += 1
                 if last_action >= 0 and (last_action % 8) == self.prev_dead_end_local_action:
                     self.dead_end_local_follow_step_count += 1
-            if self.prev_dead_end_reverse_available and self.prev_dead_end_reverse_action is not None:
-                self.dead_end_reverse_available_step_count += 1
-                if last_action >= 0 and (last_action % 8) == self.prev_dead_end_reverse_action:
-                    self.dead_end_reverse_follow_step_count += 1
-            if (
-                self.prev_persistent_dead_end_available
-                and self.prev_persistent_dead_end_action is not None
-            ):
-                self.persistent_dead_end_follow_available_step_count += 1
-                if (
-                    0 <= last_action < 8
-                    and (last_action % 8) == self.prev_persistent_dead_end_action
-                ):
-                    self.persistent_dead_end_follow_step_count += 1
-            if dead_end_pretrigger:
-                self.dead_end_pretrigger_step_count += 1
-            if dead_end_reentry_action_blocked:
-                self.dead_end_reentry_block_step_count += 1
-                self.dead_end_deeper_block_step_count += 1
+            if self.prev_post_flash_follow_available and self.prev_post_flash_follow_action is not None:
+                self.post_flash_follow_available_step_count += 1
+                post_flash_follow_hit = bool(
+                    last_action >= 0
+                    and last_action < 8
+                    and (last_action % 8) == self.prev_post_flash_follow_action
+                    and move_dist_norm >= POST_FLASH_FOLLOW_MIN_DIST_NORM
+                )
+                if post_flash_follow_hit:
+                    self.post_flash_follow_step_count += 1
+                elif move_dist_norm < POST_FLASH_PAUSE_DIST_NORM:
+                    self.post_flash_pause_step_count += 1
             if new_discovered_count > 0 or current_is_frontier:
                 self.discovery_step_count += 1
             if hidden_treasure_flag > 0.5:
@@ -3138,8 +2219,6 @@ class Preprocessor:
                         self.wall_cross_effective_count += 1
                 elif self.prev_flash_planner_reason == "CHOKE_ESCAPE":
                     self.choke_escape_flash_count += 1
-                    if flash_effective:
-                        self.choke_escape_effective_count += 1
                 else:
                     self.close_escape_flash_count += 1
                 if (
@@ -3148,45 +2227,57 @@ class Preprocessor:
                 ):
                     self.post_flash_dead_end_count += 1
 
-        survive_reward = 0.01
+        survive_reward = HIGH_PRESSURE_SURVIVE_REWARD
         dist_shaping = 0.1 * (cur_min_dist_norm - self.last_min_monster_dist_norm)
         treasure_score = float(hero.get("treasure_score", env_info.get("treasure_score", 0.0)))
-        treasure_reward = 0.02 * max(0.0, treasure_score - self.last_treasure_score)
+        treasure_reward = TREASURE_SCORE_REWARD_SCALE * max(
+            0.0, treasure_score - self.last_treasure_score
+        )
 
-        safe_for_treasure = cur_min_dist_norm >= SAFE_RESOURCE_DIST_NORM
-        if dead_end_under_pressure:
-            safe_for_treasure = False
+        pressure_treasure_window = bool(
+            dead_end_under_pressure and pressure_treasure_window_hint
+        )
+        safe_for_treasure = bool(
+            cur_min_dist_norm >= SAFE_RESOURCE_DIST_NORM
+            or pressure_treasure_window
+        )
         buff_focus = buff_remain <= 0 or cur_min_dist_norm < SAFE_RESOURCE_DIST_NORM
 
-        treasure_approach_reward = 0.08 * max(
+        treasure_approach_reward = TREASURE_APPROACH_REWARD_SCALE * max(
             0.0, self.last_nearest_treasure_dist_norm - nearest_treasure_dist_norm
         )
         if not safe_for_treasure:
-            treasure_approach_reward *= 0.25
+            treasure_approach_reward *= UNSAFE_TREASURE_APPROACH_SCALE
 
-        buff_approach_reward = 0.06 * max(0.0, self.last_nearest_buff_dist_norm - nearest_buff_dist_norm)
+        buff_approach_reward = BUFF_APPROACH_REWARD_SCALE * max(
+            0.0, self.last_nearest_buff_dist_norm - nearest_buff_dist_norm
+        )
         if not buff_focus:
-            buff_approach_reward *= 0.3
+            buff_approach_reward *= PASSIVE_BUFF_APPROACH_SCALE
 
         path_follow_reward = 0.0
         if last_action >= 0:
             action_dir = last_action % 8
             if safe_for_treasure:
-                path_follow_reward += 0.03 * float(treasure_path_scores[action_dir])
+                path_follow_reward += TREASURE_PATH_FOLLOW_REWARD * float(
+                    treasure_path_scores[action_dir]
+                )
             if buff_focus:
-                path_follow_reward += 0.03 * float(buff_path_scores[action_dir])
+                path_follow_reward += BUFF_PATH_FOLLOW_REWARD * float(
+                    buff_path_scores[action_dir]
+                )
 
         buff_reward = 0.25 if buff_remain > self.last_buff_remain + 1e-6 else 0.0
         if visit_count == 1:
-            explore_reward = 0.02
-            if confirmed_dead_end or self.persistent_dead_end_target_active:
-                explore_reward *= 0.25
+            explore_reward = EXPLORE_REWARD_ON_NEW_CELL
         else:
-            revisit_penalty = -0.006 * min(5, visit_count - 1)
+            revisit_penalty = -REVISIT_PENALTY_SCALE * min(5, visit_count - 1)
             if loop_survival_mode and loop_flag > 0.5:
-                revisit_penalty *= 0.2
+                revisit_penalty *= LOOP_REVISIT_PENALTY_DISCOUNT
+            if dead_end_backtrack_mode and backtrack_action is not None:
+                revisit_penalty *= BACKTRACK_REVISIT_PENALTY_DISCOUNT
             if dead_end_local_mode and local_escape_action is not None:
-                revisit_penalty *= 0.1
+                revisit_penalty *= DEAD_END_LOCAL_REVISIT_PENALTY_DISCOUNT
             explore_reward = revisit_penalty
 
         if cur_min_dist_norm < CRITICAL_MONSTER_DIST_NORM:
@@ -3222,6 +2313,20 @@ class Preprocessor:
             elif last_action < 8 and cur_min_dist_norm < SAFE_RESOURCE_DIST_NORM:
                 dead_end_flash_follow_reward -= 0.03
 
+        dead_end_backtrack_reward = 0.0
+        if (
+            self.prev_dead_end_backtrack_available
+            and self.prev_dead_end_backtrack_action is not None
+            and last_action >= 0
+        ):
+            action_dir = last_action % 8
+            if action_dir == self.prev_dead_end_backtrack_action:
+                dead_end_backtrack_reward += 0.03
+            elif move_dist_norm < 0.01:
+                dead_end_backtrack_reward -= 0.05
+            elif action_dir == _opposite_action(self.prev_dead_end_backtrack_action):
+                dead_end_backtrack_reward -= 0.03
+
         loop_follow_reward = 0.0
         if last_action >= 0 and loop_survival_mode and loop_action is not None:
             action_dir = last_action % 8
@@ -3232,34 +2337,35 @@ class Preprocessor:
             elif action_dir == _opposite_action(loop_action):
                 loop_follow_reward -= 0.03
 
+        post_flash_follow_reward = 0.0
+        if (
+            self.prev_post_flash_follow_available
+            and self.prev_post_flash_follow_action is not None
+            and last_action >= 0
+        ):
+            action_dir = last_action % 8
+            if (
+                last_action < 8
+                and action_dir == self.prev_post_flash_follow_action
+                and move_dist_norm >= POST_FLASH_FOLLOW_MIN_DIST_NORM
+            ):
+                post_flash_follow_reward += 0.03
+            elif move_dist_norm < POST_FLASH_PAUSE_DIST_NORM:
+                post_flash_follow_reward -= 0.04
+
         dead_end_local_reward = 0.0
         if last_action >= 0 and dead_end_local_mode and local_escape_action is not None:
             action_dir = last_action % 8
+            adjacent_local_actions = set(_adjacent_actions(local_escape_action))
             if action_dir == local_escape_action:
                 scale = 0.10 if local_commit_mode else 0.07
                 dead_end_local_reward += scale * (0.5 + 0.5 * local_escape_quality)
+            elif local_commit_mode and action_dir in adjacent_local_actions:
+                dead_end_local_reward += 0.04 * (0.5 + 0.5 * local_escape_quality)
             elif move_dist_norm < 0.01:
                 dead_end_local_reward -= 0.12 if local_commit_mode else 0.10
             elif action_dir == _opposite_action(local_escape_action):
                 dead_end_local_reward -= 0.06 if local_commit_mode else 0.04
-
-        dead_end_persistent_follow_reward = 0.0
-        if (
-            0 <= last_action < 8
-            and self.prev_persistent_dead_end_available
-            and self.prev_persistent_dead_end_action is not None
-            and (last_action % 8) == self.prev_persistent_dead_end_action
-        ):
-            dead_end_persistent_follow_reward += 0.03
-
-        dead_end_exit_bonus = 0.08 if dead_end_exit_success else 0.0
-        dead_end_deeper_penalty = 0.0
-        if (
-            0 <= last_action < 8
-            and (self.prev_confirmed_dead_end or self.prev_persistent_dead_end_target_active)
-            and dead_end_deeper_move_this_step
-        ):
-            dead_end_deeper_penalty -= 0.04
 
         anti_oscillation_reward = 0.0
         if last_action >= 0 and anti_oscillation_mode and local_escape_action is not None:
@@ -3274,20 +2380,15 @@ class Preprocessor:
         self.last_min_monster_dist_norm = cur_min_dist_norm
         self.last_min_margin_cells = current_margin_cells
         self.last_local_space_score = current_local_space_score
-        self.last_local_branch_factor = current_local_branch_factor
         self.last_danger_state = current_danger
         self.last_true_threat_state = current_true_threat
         self.last_near_threat_state = current_near_threat
-        self.near_threat_persist_steps = near_threat_persist_steps
-        self.prev_encirclement_angle = encirclement_angle
-        self.prev_monster_tracks = effective_monster_tracks
         self.last_treasure_score = treasure_score
         self.last_buff_remain = float(buff_remain)
         self.last_hero_pos = {"x": hero_pos["x"], "z": hero_pos["z"]}
-        self.same_dir_streak = current_same_dir_streak
-        self.prev_action_dir = current_action_dir
-        self.recent_flash_steps = 2 if last_action >= 8 else max(0, int(self.recent_flash_steps) - 1)
         self.position_history.append(current_pos_tuple)
+        if not self.route_history or self.route_history[-1] != current_pos_tuple:
+            self.route_history.append(current_pos_tuple)
         self.last_nearest_treasure_dist_norm = nearest_treasure_dist_norm
         self.last_nearest_buff_dist_norm = nearest_buff_dist_norm
         self.prev_frontier_available = frontier_action is not None
@@ -3297,37 +2398,14 @@ class Preprocessor:
         self.prev_loop_survival_mode = loop_survival_mode
         self.prev_dead_end_flash_available = flash_escape_possible and best_flash_action is not None
         self.prev_dead_end_flash_action = best_flash_action
+        self.prev_dead_end_backtrack_available = dead_end_backtrack_mode and backtrack_action is not None
+        self.prev_dead_end_backtrack_action = backtrack_action
         self.prev_dead_end_local_available = dead_end_local_mode and local_escape_action is not None
         self.prev_dead_end_local_action = local_escape_action
-        self.prev_dead_end_reverse_available = bool(
-            dead_end_local_mode and local_escape_is_reverse and local_escape_action is not None
+        self.prev_post_flash_follow_available = (
+            post_flash_follow_mode and post_flash_follow_action is not None
         )
-        self.prev_dead_end_reverse_action = local_escape_action
-        self.prev_persistent_dead_end_available = bool(
-            self.persistent_dead_end_target_active and local_escape_action is not None
-        )
-        self.prev_persistent_dead_end_action = (
-            int(local_escape_action)
-            if self.persistent_dead_end_target_active and local_escape_action is not None
-            else None
-        )
-        self.prev_dead_end_pretrigger = bool(dead_end_pretrigger)
-        self.prev_confirmed_dead_end = bool(confirmed_dead_end)
-        if self.persistent_dead_end_target_active:
-            self.prev_dead_end_reference_target_pos = self.persistent_dead_end_target_pos
-        elif confirmed_dead_end:
-            self.prev_dead_end_reference_target_pos = local_escape_target_abs_pos
-        else:
-            self.prev_dead_end_reference_target_pos = None
-        self.prev_dead_end_reference_action = (
-            int(local_escape_action)
-            if (self.persistent_dead_end_target_active or confirmed_dead_end)
-            and local_escape_action is not None
-            else None
-        )
-        self.prev_persistent_dead_end_target_active = bool(
-            self.persistent_dead_end_target_active
-        )
+        self.prev_post_flash_follow_action = post_flash_follow_action
         self.prev_flash_planner_reason = (
             best_flash_info.get("reason", "NO_FLASH_MOVE_IS_BETTER")
             if flash_commit_mode and best_flash_info is not None
@@ -3341,36 +2419,19 @@ class Preprocessor:
             "visit_count": int(visit_count),
             "branch_factor": int(current_branch_factor),
             "local_branch_factor": int(current_local_branch_factor),
-            "current_local_branch_factor": int(current_local_branch_factor),
             "current_true_threat": int(current_true_threat),
             "current_near_threat": int(current_near_threat),
             "current_danger": int(current_danger),
             "current_margin_cells": round(float(current_margin_cells), 4),
             "current_local_space_score": round(float(current_local_space_score), 4),
-            "current_local_branch_delta": round(float(local_branch_delta), 4),
-            "current_margin_delta": round(float(margin_delta), 4),
-            "current_local_space_delta": round(float(local_space_delta), 4),
             "local_dead_end": int(local_dead_end),
             "narrow_topology_flag": int(narrow_topology_flag),
             "dead_end_under_pressure": int(dead_end_under_pressure),
             "flash_escape_urgent": int(flash_escape_urgent),
             "flash_eval_trigger": int(flash_eval_trigger),
             "flash_planner_override": int(planner_flash_override),
-            "occluded_monster_pressure_flag": int(occluded_monster_pressure_flag),
-            "danger_rising_flag": int(danger_rising_flag),
-            "dead_end_pressure_for_pretrigger": int(dead_end_pressure_for_pretrigger),
-            "near_threat_persist_steps": int(near_threat_persist_steps),
-            "encirclement_angle": round(float(encirclement_angle), 4),
-            "encirclement_angle_delta": round(float(encirclement_angle_delta), 4),
-            "dual_side_pressure_flag": int(dual_side_pressure_flag),
-            "monster_dist_delta": round(float(planner_monster_dist_delta), 4),
-            "monster_last_seen_steps": round(float(planner_monster_last_seen_steps), 4),
-            "monster_recently_visible_flag": int(bool(planner_monster_recently_visible_flag)),
-            "same_dir_streak_norm": round(float(same_dir_streak_norm), 4),
-            "hero_dx": round(float(hero_dx_norm), 4),
-            "hero_dz": round(float(hero_dz_norm), 4),
-            "recent_flash_flag": int(bool(recent_flash_flag)),
             "flash_commit_mode": int(flash_commit_mode),
+            "post_flash_follow_mode": int(post_flash_follow_mode),
             "frontier_local_commit_mode": int(frontier_local_commit_mode),
             "loop_ready_flag": round(loop_ready_flag, 4),
             "loop_survival_mode": int(loop_survival_mode),
@@ -3397,72 +2458,21 @@ class Preprocessor:
             "nearest_buff_dist_norm": round(float(nearest_buff_dist_norm), 4),
             "cur_min_monster_dist_norm": round(float(cur_min_dist_norm), 4),
             "flash_escape_possible": int(flash_escape_possible),
+            "dead_end_backtrack_mode": int(dead_end_backtrack_mode),
+            "dead_end_backtrack_action": int(backtrack_action) if backtrack_action is not None else -1,
+            "dead_end_backtrack_ready": int(backtrack_exit_ready),
+            "dead_end_backtrack_dist_norm": round(float(backtrack_dist_norm), 4),
+            "dead_end_backtrack_quality": round(float(backtrack_quality), 4),
+            "dead_end_backtrack_blocked": int(backtrack_blocked),
             "dead_end_local_mode": int(dead_end_local_mode),
-            "confirmed_dead_end": int(confirmed_dead_end),
-            "dead_end_pretrigger": int(dead_end_pretrigger),
             "dead_end_local_commit_mode": int(local_commit_mode),
-            "corridor_escape_mode": int(corridor_escape_mode),
-            "local_escape_is_reverse": int(local_escape_is_reverse),
-            "local_escape_search_depth": int(local_escape_search_depth),
-            "local_escape_target_branch_factor": int(local_escape_target_branch_factor),
-            "local_escape_target_abs_pos": (
-                [int(local_escape_target_abs_pos[0]), int(local_escape_target_abs_pos[1])]
-                if local_escape_target_abs_pos is not None
-                else [-1, -1]
-            ),
-            "local_escape_target_path_steps": int(local_escape_target_path_steps),
-            "local_escape_target_space_score": round(float(local_escape_target_space_score), 4),
-            "local_escape_target_monster_gain": round(float(local_escape_target_monster_gain), 4),
-            "local_escape_target_reachable": int(local_escape_target_reachable),
-            "dead_end_exit_tracking_active": int(self.dead_end_exit_tracking_active),
-            "dead_end_exit_remaining_steps": int(self.dead_end_exit_remaining_steps),
-            "dead_end_exit_success": int(dead_end_exit_success),
-            "dead_end_terminal_pos": (
-                [int(self.dead_end_terminal_pos[0]), int(self.dead_end_terminal_pos[1])]
-                if self.dead_end_terminal_pos is not None
-                else [-1, -1]
-            ),
-            "dead_end_reentry_block_steps": int(self.dead_end_reentry_block_steps),
-            "dead_end_reentry_action_blocked": int(dead_end_reentry_action_blocked),
-            "persistent_dead_end_target_active": int(self.persistent_dead_end_target_active),
-            "persistent_dead_end_target_pos": (
-                [
-                    int(self.persistent_dead_end_target_pos[0]),
-                    int(self.persistent_dead_end_target_pos[1]),
-                ]
-                if self.persistent_dead_end_target_pos is not None
-                else [-1, -1]
-            ),
-            "persistent_dead_end_target_branch_factor": int(
-                self.persistent_dead_end_target_branch_factor
-            ),
-            "persistent_dead_end_active_steps": int(self.persistent_dead_end_active_steps),
-            "persistent_dead_end_target_steps": int(self.persistent_dead_end_target_steps),
-            "persistent_dead_end_commit_remaining": int(
-                self.persistent_dead_end_commit_remaining
-            ),
-            "persistent_dead_end_replan_count": int(
-                self.persistent_dead_end_replan_count
-            ),
-            "persistent_dead_end_followed_once": int(self.persistent_dead_end_followed_once),
-            "persistent_dead_end_just_activated": int(persistent_dead_end_just_activated),
-            "persistent_dead_end_commit_mode": int(persistent_commit_mode),
-            "persistent_dead_end_action": (
-                int(local_escape_action)
-                if self.persistent_dead_end_target_active and local_escape_action is not None
-                else -1
-            ),
-            "nonpersistent_dead_end_commit_remaining": int(
-                self.nonpersistent_dead_end_commit_remaining
-            ),
-            "used_persistent_target": int(
-                bool(local_escape_meta.get("used_persistent_target", False))
-            ),
-            "dead_end_deeper_action_blocked": int(dead_end_deeper_action_blocked),
             "dead_end_flash_action": int(best_flash_action) if flash_escape_possible and best_flash_action is not None else -1,
             "local_escape_action": int(local_escape_action) if local_escape_action is not None else -1,
             "local_escape_quality": round(float(local_escape_quality), 4),
             "local_escape_dist_norm": round(float(local_escape_dist_norm), 4),
+            "post_flash_follow_action": int(post_flash_follow_action)
+            if post_flash_follow_action is not None
+            else -1,
             "blocked_flash_count": int(blocked_flash_count),
             "best_flash_action": int(best_flash_action) if best_flash_action is not None else -1,
             "best_flash_score": round(float(best_flash_info["score"]), 4) if best_flash_info else 0.0,
@@ -3511,11 +2521,10 @@ class Preprocessor:
             + danger_penalty
             + flash_reward
             + dead_end_flash_follow_reward
+            + dead_end_backtrack_reward
+            + post_flash_follow_reward
             + loop_follow_reward
             + dead_end_local_reward
-            + dead_end_persistent_follow_reward
-            + dead_end_exit_bonus
-            + dead_end_deeper_penalty
             + anti_oscillation_reward
         ]
 

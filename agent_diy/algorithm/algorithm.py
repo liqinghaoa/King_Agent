@@ -4,11 +4,10 @@
 # Copyright (c) 1998 - 2026 Tencent. All Rights Reserved.
 ###########################################################################
 """
-Recurrent discrete SAC algorithm implementation for Gorge Chase. 龙的diy
+Recurrent discrete SAC algorithm implementation for Gorge Chase.
 """
 
 import copy
-import json
 import os
 import time
 
@@ -72,31 +71,12 @@ class Algorithm:
 
         self.last_report_monitor_time = 0.0
         self.train_step = 0
-        self._logged_learn_summary = False
         if self.logger:
             alpha_mode = "auto" if self.use_auto_alpha else "fixed"
             self.logger.info(
                 f"discrete SAC alpha mode={alpha_mode} "
                 f"alpha={float(self.alpha.detach().cpu().item()):.4f} "
                 f"target_entropy={self.target_entropy:.4f}"
-            )
-            self.logger.info(
-                "[RNN-CONFIG] "
-                + json.dumps(
-                    {
-                        "use_recurrent": bool(Config.USE_RECURRENT),
-                        "seq_len": int(Config.SEQ_LEN),
-                        "burn_in": int(Config.BURN_IN),
-                        "learn_len": int(Config.LEARN_LEN),
-                        "lstm_hidden_dim": int(Config.LSTM_HIDDEN_DIM),
-                        "lstm_num_layers": int(Config.LSTM_NUM_LAYERS),
-                        "use_gru": bool(Config.USE_GRU),
-                        "static_hidden_dim": int(Config.STATIC_HIDDEN_DIM),
-                        "dynamic_hidden_dim": int(Config.DYNAMIC_HIDDEN_DIM),
-                    },
-                    ensure_ascii=True,
-                    sort_keys=True,
-                )
             )
 
     @property
@@ -131,33 +111,6 @@ class Algorithm:
         learn_mask = mask_seq[:, learn_slice, :]
         if float(torch.sum(learn_mask).item()) <= 0.0:
             return
-
-        effective_token_count = int(torch.sum(learn_mask).item())
-        should_log_learn = (not self._logged_learn_summary) or (self.train_step > 0 and self.train_step % 200 == 0)
-        if self.logger and should_log_learn:
-            self.logger.info(
-                "[RNN-LEARN] "
-                + json.dumps(
-                    {
-                        "use_recurrent": bool(Config.USE_RECURRENT),
-                        "batch_size": int(obs_seq.shape[0]),
-                        "has_time_dim": bool(obs_seq.dim() == 3),
-                        "obs_shape": list(obs_seq.shape),
-                        "temporal_obs_shape": list(temporal_obs_seq.shape),
-                        "legal_action_shape": list(legal_action_seq.shape),
-                        "act_shape": list(act_seq.shape),
-                        "reward_shape": list(reward_seq.shape),
-                        "done_shape": list(done_seq.shape),
-                        "mask_shape": list(mask_seq.shape),
-                        "effective_token_count": effective_token_count,
-                        "burn_in": int(Config.BURN_IN),
-                        "learn_len": int(Config.LEARN_LEN),
-                    },
-                    ensure_ascii=True,
-                    sort_keys=True,
-                )
-            )
-            self._logged_learn_summary = True
 
         self.model.set_train_mode()
         current_alpha = self.alpha.detach()
@@ -351,58 +304,19 @@ class Algorithm:
             checkpoint["fixed_alpha"] = float(self.fixed_alpha.detach().cpu().item())
         return checkpoint
 
-    def load_checkpoint(self, checkpoint, checkpoint_path=None):
+    def load_checkpoint(self, checkpoint):
         """Load algorithm state from a checkpoint payload."""
-        strict_load = True
         if not isinstance(checkpoint, dict):
-            model_state = checkpoint
-            target_q1_state = None
-            target_q2_state = None
-            alpha_mode = "raw_state_dict"
-            log_alpha = None
-            fixed_alpha = None
-        else:
-            model_state = checkpoint.get("model_state", checkpoint)
-            target_q1_state = checkpoint.get("target_q1_state")
-            target_q2_state = checkpoint.get("target_q2_state")
-            alpha_mode = checkpoint.get("alpha_mode")
-            log_alpha = checkpoint.get("log_alpha")
-            fixed_alpha = checkpoint.get("fixed_alpha")
+            self.model.load_state_dict(checkpoint)
+            self.target_q1.load_state_dict(self.model.q1.state_dict())
+            self.target_q2.load_state_dict(self.model.q2.state_dict())
+            return
 
-        current_state = self.model.state_dict()
-        checkpoint_keys = list(model_state.keys()) if hasattr(model_state, "keys") else []
-        current_keys = set(current_state.keys())
-        ckpt_keys = set(checkpoint_keys)
-        missing_keys = sorted(current_keys - ckpt_keys)
-        unexpected_keys = sorted(ckpt_keys - current_keys)
-        shape_mismatch_keys = sorted(
-            key
-            for key in (current_keys & ckpt_keys)
-            if tuple(current_state[key].shape) != tuple(model_state[key].shape)
-        )
-        recurrent_keys = [key for key in checkpoint_keys if ".recurrent." in key]
-        rnn_ckpt_payload = {
-            "checkpoint_path": checkpoint_path or "",
-            "load_success": False,
-            "checkpoint_has_recurrent_keys": bool(recurrent_keys),
-            "model_expects_recurrent": bool(Config.USE_RECURRENT),
-            "missing_key_count": len(missing_keys),
-            "unexpected_key_count": len(unexpected_keys),
-            "shape_mismatch_count": len(shape_mismatch_keys),
-            "strict_load": strict_load,
-            "recurrent_key_sample": recurrent_keys[:5],
-        }
+        model_state = checkpoint.get("model_state", checkpoint)
+        self.model.load_state_dict(model_state)
 
-        try:
-            self.model.load_state_dict(model_state, strict=strict_load)
-        except Exception as exc:
-            if self.logger:
-                rnn_ckpt_payload["error"] = str(exc)
-                self.logger.info(
-                    "[RNN-CKPT] " + json.dumps(rnn_ckpt_payload, ensure_ascii=True, sort_keys=True)
-                )
-            raise
-
+        target_q1_state = checkpoint.get("target_q1_state")
+        target_q2_state = checkpoint.get("target_q2_state")
         if target_q1_state is None:
             self.target_q1.load_state_dict(self.model.q1.state_dict())
         else:
@@ -414,6 +328,7 @@ class Algorithm:
             self.target_q2.load_state_dict(target_q2_state)
 
         if self.use_auto_alpha:
+            log_alpha = checkpoint.get("log_alpha")
             if log_alpha is not None:
                 with torch.no_grad():
                     self.log_alpha.copy_(
@@ -423,17 +338,12 @@ class Algorithm:
                         )
                     )
         else:
+            fixed_alpha = checkpoint.get("fixed_alpha")
             with torch.no_grad():
-                if fixed_alpha is not None and alpha_mode == "fixed":
+                if fixed_alpha is not None and checkpoint.get("alpha_mode") == "fixed":
                     self.fixed_alpha.fill_(float(fixed_alpha))
                 else:
                     self.fixed_alpha.fill_(float(Config.FIXED_ALPHA))
-
-        if self.logger:
-            rnn_ckpt_payload["load_success"] = True
-            self.logger.info(
-                "[RNN-CKPT] " + json.dumps(rnn_ckpt_payload, ensure_ascii=True, sort_keys=True)
-            )
 
     def _unpack_recurrent_batch(self, list_sample_data):
         packed_batch = torch.as_tensor(

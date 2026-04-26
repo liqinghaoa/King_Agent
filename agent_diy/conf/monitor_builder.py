@@ -68,25 +68,14 @@ def build_monitor():
         .end_panel()
         .add_panel(name="Memory Quality", name_en="episode_memory_quality", type="line")
         .add_metric(metrics_name="revisit_rate", expr="avg(revisit_rate{})")
-        .add_metric(metrics_name="discovery_step_rate", expr="avg(discovery_step_rate{})")
-        .add_metric(metrics_name="map_coverage_ratio", expr="avg(map_coverage_ratio{})")
-        .add_metric(
-            metrics_name="hidden_treasure_memory_rate",
-            expr="avg(hidden_treasure_memory_rate{})",
-        )
-        .add_metric(metrics_name="frontier_available_rate", expr="avg(frontier_available_rate{})")
-        .add_metric(metrics_name="frontier_follow_rate", expr="avg(frontier_follow_rate{})")
-        .add_metric(metrics_name="loop_survival_mode_rate", expr="avg(loop_survival_mode_rate{})")
-        .add_metric(
-            metrics_name="loop_anchor_follow_rate",
-            expr="avg(loop_anchor_follow_rate{})",
-        )
-        .end_panel()
-        .add_panel(name="Dead-End Control", name_en="episode_dead_end_control", type="line")
         .add_metric(metrics_name="dead_end_entry_rate", expr="avg(dead_end_entry_rate{})")
         .add_metric(
             metrics_name="dead_end_flash_escape_rate",
             expr="avg(dead_end_flash_escape_rate{})",
+        )
+        .add_metric(
+            metrics_name="dead_end_backtrack_rate",
+            expr="avg(dead_end_backtrack_rate{})",
         )
         .add_metric(
             metrics_name="dead_end_local_mode_rate",
@@ -101,48 +90,33 @@ def build_monitor():
             expr="avg(dead_end_flash_follow_rate{})",
         )
         .add_metric(
+            metrics_name="dead_end_backtrack_follow_rate",
+            expr="avg(dead_end_backtrack_follow_rate{})",
+        )
+        .add_metric(
             metrics_name="dead_end_local_follow_rate",
             expr="avg(dead_end_local_follow_rate{})",
         )
         .add_metric(
-            metrics_name="dead_end_exit_success_rate",
-            expr="avg(dead_end_exit_success_rate{})",
+            metrics_name="post_flash_follow_rate",
+            expr="avg(post_flash_follow_rate{})",
         )
         .add_metric(
-            metrics_name="dead_end_reverse_follow_rate",
-            expr="avg(dead_end_reverse_follow_rate{})",
+            metrics_name="post_flash_pause_rate",
+            expr="avg(post_flash_pause_rate{})",
         )
+        .add_metric(metrics_name="discovery_step_rate", expr="avg(discovery_step_rate{})")
+        .add_metric(metrics_name="map_coverage_ratio", expr="avg(map_coverage_ratio{})")
         .add_metric(
-            metrics_name="persistent_dead_end_follow_rate",
-            expr="avg(persistent_dead_end_follow_rate{})",
+            metrics_name="hidden_treasure_memory_rate",
+            expr="avg(hidden_treasure_memory_rate{})",
         )
+        .add_metric(metrics_name="frontier_available_rate", expr="avg(frontier_available_rate{})")
+        .add_metric(metrics_name="frontier_follow_rate", expr="avg(frontier_follow_rate{})")
+        .add_metric(metrics_name="loop_survival_mode_rate", expr="avg(loop_survival_mode_rate{})")
         .add_metric(
-            metrics_name="persistent_dead_end_active_rate",
-            expr="avg(persistent_dead_end_active_rate{})",
-        )
-        .add_metric(
-            metrics_name="persistent_dead_end_commit_rate",
-            expr="avg(persistent_dead_end_commit_rate{})",
-        )
-        .add_metric(
-            metrics_name="persistent_dead_end_success_follow_rate",
-            expr="avg(persistent_dead_end_success_follow_rate{})",
-        )
-        .add_metric(
-            metrics_name="dead_end_pretrigger_rate",
-            expr="avg(dead_end_pretrigger_rate{})",
-        )
-        .add_metric(
-            metrics_name="dead_end_deeper_block_rate",
-            expr="avg(dead_end_deeper_block_rate{})",
-        )
-        .add_metric(
-            metrics_name="confirmed_dead_end_rate",
-            expr="avg(confirmed_dead_end_rate{})",
-        )
-        .add_metric(
-            metrics_name="dead_end_reentry_block_rate",
-            expr="avg(dead_end_reentry_block_rate{})",
+            metrics_name="loop_anchor_follow_rate",
+            expr="avg(loop_anchor_follow_rate{})",
         )
         .end_panel()
         .add_panel(name="Action Quality", name_en="episode_action_quality", type="line")

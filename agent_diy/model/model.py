@@ -7,8 +7,6 @@
 Multi-branch recurrent model for discrete SAC.
 """
 
-from collections import OrderedDict
-
 import torch
 import torch.nn as nn
 
@@ -44,19 +42,14 @@ class RecurrentBranchNetwork(nn.Module):
         super().__init__()
 
         self.hero_encoder = MLPEncoder(
-            Config.HERO_TEMPORAL_DIM,
+            Config.HERO_FEAT_DIM,
             Config.HERO_EMBED_DIM,
             Config.HERO_EMBED_DIM,
         )
         self.monster_encoder = MLPEncoder(
-            Config.MONSTER_TEMPORAL_DIM,
+            Config.MONSTER_FEAT_DIM,
             Config.MONSTER_EMBED_DIM,
             Config.MONSTER_EMBED_DIM,
-        )
-        self.pair_encoder = MLPEncoder(
-            Config.PAIR_TEMPORAL_DIM,
-            Config.PAIR_EMBED_DIM,
-            Config.PAIR_EMBED_DIM,
         )
         self.risk_encoder = MLPEncoder(
             Config.RISK_SUMMARY_DIM,
@@ -71,7 +64,6 @@ class RecurrentBranchNetwork(nn.Module):
         self.dynamic_encoder = MLPEncoder(
             Config.HERO_EMBED_DIM
             + 2 * Config.MONSTER_EMBED_DIM
-            + Config.PAIR_EMBED_DIM
             + Config.RISK_EMBED_DIM
             + Config.ACTION_EMBED_DIM,
             Config.DYNAMIC_HIDDEN_DIM,
@@ -156,19 +148,18 @@ class RecurrentBranchNetwork(nn.Module):
         )
 
     def _encode_dynamic(self, temporal_obs):
-        hero, monster1, monster2, pair_trend, risk, last_action = torch.split(
+        hero, monster1, monster2, risk, last_action = torch.split(
             temporal_obs,
             Config.TEMPORAL_FEATURE_SPLIT_SHAPE,
             dim=-1,
         )
-        hero_embed = self.hero_encoder(hero.reshape(-1, Config.HERO_TEMPORAL_DIM))
-        monster1_embed = self.monster_encoder(monster1.reshape(-1, Config.MONSTER_TEMPORAL_DIM))
-        monster2_embed = self.monster_encoder(monster2.reshape(-1, Config.MONSTER_TEMPORAL_DIM))
-        pair_embed = self.pair_encoder(pair_trend.reshape(-1, Config.PAIR_TEMPORAL_DIM))
+        hero_embed = self.hero_encoder(hero.reshape(-1, Config.HERO_FEAT_DIM))
+        monster1_embed = self.monster_encoder(monster1.reshape(-1, Config.MONSTER_FEAT_DIM))
+        monster2_embed = self.monster_encoder(monster2.reshape(-1, Config.MONSTER_FEAT_DIM))
         risk_embed = self.risk_encoder(risk.reshape(-1, Config.RISK_SUMMARY_DIM))
         action_embed = self.action_encoder(last_action.reshape(-1, Config.LAST_ACTION_FEAT_DIM))
         dynamic_input = torch.cat(
-            [hero_embed, monster1_embed, monster2_embed, pair_embed, risk_embed, action_embed],
+            [hero_embed, monster1_embed, monster2_embed, risk_embed, action_embed],
             dim=-1,
         )
         dynamic_embed = self.dynamic_encoder(dynamic_input)
@@ -223,41 +214,3 @@ class Model(nn.Module):
 
     def set_eval_mode(self):
         self.eval()
-
-    def get_model_debug_summary(self):
-        recurrent_module = getattr(self.actor, "recurrent", None)
-        recurrent_module_name = "none"
-        has_lstm_module = False
-        has_gru_module = False
-        recurrent_hidden_dim = 0
-        if isinstance(recurrent_module, nn.LSTM):
-            recurrent_module_name = "lstm"
-            has_lstm_module = True
-            recurrent_hidden_dim = int(recurrent_module.hidden_size)
-        elif isinstance(recurrent_module, nn.GRU):
-            recurrent_module_name = "gru"
-            has_gru_module = True
-            recurrent_hidden_dim = int(recurrent_module.hidden_size)
-
-        state_keys = list(self.state_dict().keys())
-        recurrent_key_sample = [key for key in state_keys if ".recurrent." in key][:5]
-        has_weight_ih_l0 = any(key.endswith("recurrent.weight_ih_l0") for key in state_keys)
-        has_weight_hh_l0 = any(key.endswith("recurrent.weight_hh_l0") for key in state_keys)
-
-        return OrderedDict(
-            model_name=self.model_name,
-            use_recurrent=bool(Config.USE_RECURRENT),
-            has_lstm_module=has_lstm_module,
-            has_gru_module=has_gru_module,
-            recurrent_module_name=recurrent_module_name,
-            recurrent_hidden_dim=recurrent_hidden_dim,
-            actor_param_count=int(sum(param.numel() for param in self.actor.parameters())),
-            critic_param_count=int(
-                sum(param.numel() for param in self.q1.parameters())
-                + sum(param.numel() for param in self.q2.parameters())
-            ),
-            total_param_count=int(sum(param.numel() for param in self.parameters())),
-            has_key_recurrent_weight_ih_l0=has_weight_ih_l0,
-            has_key_recurrent_weight_hh_l0=has_weight_hh_l0,
-            recurrent_key_sample=recurrent_key_sample,
-        )
